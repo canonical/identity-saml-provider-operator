@@ -8,8 +8,9 @@ from ops import Container, ModelError, Unit
 from ops.pebble import Layer, LayerDict
 
 from constants import (
-    IDENTITY_SAML_SERVER_HTTP_PORT,
+    APPLICATION_PORT,
     WORKLOAD_CONTAINER,
+    WORKLOAD_RUN_COMMAND,
     WORKLOAD_SERVICE,
 )
 from env_vars import DEFAULT_CONTAINER_ENV, EnvVarConvertible
@@ -25,7 +26,7 @@ PEBBLE_LAYER_DICT = {
             "override": "replace",
             "summary": "Identity SAML provider service",
             "command": (
-                "./identity-saml-provider"
+                WORKLOAD_RUN_COMMAND
             ),
             "startup": "disabled",
         }
@@ -36,7 +37,7 @@ PEBBLE_LAYER_DICT = {
             "period": "1m",
             "level": "alive",
             "http": {
-                "url": f"http://localhost:{IDENTITY_SAML_SERVER_HTTP_PORT}/_status/ping",
+                "url": f"http://localhost:{APPLICATION_PORT}/_status/ping",
             },
         }
     },
@@ -60,7 +61,7 @@ class WorkloadService:
         return workload_service.is_running()
 
     def open_ports(self) -> None:
-        self._unit.open_port(protocol="tcp", port=IDENTITY_SAML_SERVER_HTTP_PORT)
+        self._unit.open_port(protocol="tcp", port=APPLICATION_PORT)
 
 
 class PebbleService:
