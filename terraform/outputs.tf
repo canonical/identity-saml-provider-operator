@@ -12,6 +12,7 @@ output "requires" {
   value = {
     http-ingress = "http-ingress"
     database     = "database"
+    oauth        = "oauth",
     logging      = "logging"
     certificates = "certificates"
   }

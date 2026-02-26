@@ -25,7 +25,31 @@ resources:
   oci-image:
     type: oci-image
     description: OCI image for Identity SAML Provider
-    upstream-source: ghcr.io/canonical/identity-saml-provider:0.1.0
+    upstream-source: ghcr.io/canonical/identity-saml-provider:da5e919a3d3c5dc18c1a89147a961663b49d2ead # Update this with the actual image reference
+
+charm-libs:
+  - lib: hydra.oauth
+    version: "0.11"  # Must be a string, not a number.
+  - lib: traefik_k8s.traefik_route
+    version: "0.3"  # Must be a string, not a number.
+  - lib: traefik_k8s.ingress
+    version: "2.15"  # Must be a string, not a number.
+  - lib: data_platform_libs.data_interfaces
+    version: "0.58"  # Must be a string, not a number.
+
+requires:
+  oauth:
+    interface: oauth
+    limit: 1
+    optional: true
+    description: |
+      Receive oauth server's info and a set of client credentials.
+      This relation can be used to integrate with an oAuth2/OIDC Provider.
+  public-route:
+    interface: traefik_route
+    optional: true
+    description: |
+      Recommended way to expose the charm to the public internet
 
 config:
   options:
@@ -56,4 +80,4 @@ parts:
     plugin: charm
 
 platforms:
-  ubuntu@22.04:amd64:
+  ubuntu@24.04:amd64:

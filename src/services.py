@@ -2,8 +2,9 @@
 # See LICENSE file for licensing details.
 
 import logging
-from collections import ChainMap
+from typing import Optional
 
+from charms.hydra.v0.oauth import OAuthProviderConfig
 from ops import Container, ModelError, Unit
 from ops.pebble import Layer, LayerDict
 
@@ -13,35 +14,9 @@ from constants import (
     WORKLOAD_RUN_COMMAND,
     WORKLOAD_SERVICE,
 )
-from env_vars import DEFAULT_CONTAINER_ENV, EnvVarConvertible
 from exceptions import PebbleServiceError
 
 logger = logging.getLogger(__name__)
-
-PEBBLE_LAYER_DICT = {
-    "summary": "pebble layer",
-    "description": "pebble layer for Identity SAML provider",
-    "services": {
-        WORKLOAD_SERVICE: {
-            "override": "replace",
-            "summary": "Identity SAML provider service",
-            "command": (
-                WORKLOAD_RUN_COMMAND
-            ),
-            "startup": "disabled",
-        }
-    },
-    "checks": {
-        "http-check": {
-            "override": "replace",
-            "period": "1m",
-            "level": "alive",
-            "http": {
-                "url": f"http://localhost:{APPLICATION_PORT}/_status/ping",
-            },
-        }
-    },
-}
 
 
 class WorkloadService:
@@ -70,7 +45,6 @@ class PebbleService:
     def __init__(self, unit: Unit) -> None:
         self._unit = unit
         self._container = unit.get_container(WORKLOAD_CONTAINER)
-        self._layer_dict: LayerDict = PEBBLE_LAYER_DICT
 
     def _restart_service(self) -> None:
         if not self._container.get_service(WORKLOAD_SERVICE).is_running():
@@ -86,12 +60,33 @@ class PebbleService:
         except Exception as e:
             raise PebbleServiceError(f"Pebble failed to restart the workload service. Error: {e}")
 
-    def render_pebble_layer(self, *env_var_sources: EnvVarConvertible) -> Layer:
-        updated_env_vars = ChainMap(*(source.to_env_vars() for source in env_var_sources))  # type: ignore
-        env_vars = {
-            **DEFAULT_CONTAINER_ENV,
-            **updated_env_vars,
-        }
-        self._layer_dict["services"][WORKLOAD_SERVICE]["environment"] = env_vars
+    def render_pebble_layer(self, oauth: Optional[OAuthProviderConfig] = None) -> Layer:
+        hydra_oath_url = oauth.issuer_url if oauth else ""
 
-        return Layer(self._layer_dict)
+        container = {
+            "override": "replace",
+            "summary": "Identity SAML provider service",
+            "command": (WORKLOAD_RUN_COMMAND),
+            "startup": "disabled",
+            "environment": {
+                "SAML_PROVIDER_HYDRA_PUBLIC_URL": hydra_oath_url,
+                "SAML_PROVIDER_BRIDGE_BASE_PORT": str(APPLICATION_PORT),
+            },
+        }
+
+        pebble_layer: LayerDict = {
+            "summary": "identity-saml-provider layer",
+            "description": "pebble config layer for identity platform saml provider",
+            "services": {WORKLOAD_CONTAINER: container},
+            # "checks": {
+            #     "http-check": {
+            #         "override": "replace",
+            #         "period": "1m",
+            #         "level": "alive",
+            #         "http": {
+            #             "url": f"http://localhost:{APPLICATION_PORT}/_status/ping",
+            #         },
+            #     }
+            # },
+        }
+        return Layer(pebble_layer)
