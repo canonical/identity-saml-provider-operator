@@ -12,10 +12,12 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseEndpointsChangedEvent,
     DatabaseRequires,
 )
-from charms.hydra.v0.oauth import OAuthRequirer
+from charms.hydra.v0.oauth import ClientConfig, OAuthRequirer
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from charms.traefik_k8s.v2.ingress import (
+    IngressPerAppReadyEvent,
     IngressPerAppRequirer,
+    IngressPerAppRevokedEvent,
 )
 from ops import (
     ConfigChangedEvent,
@@ -23,6 +25,7 @@ from ops import (
     LeaderElectedEvent,
     PebbleReadyEvent,
     RelationBrokenEvent,
+    RelationJoinedEvent,
     StartEvent,
     UpdateStatusEvent,
 )
@@ -35,7 +38,10 @@ from constants import (
     APPLICATION_PORT,
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
+    HYDRA_INTEGRATION_NAME,
     INGRESS_INTEGRATION_NAME,
+    OAUTH_GRANT_TYPES,
+    OAUTH_SCOPES,
     PEER_INTEGRATION_NAME,
     PUBLIC_ROUTE_INTEGRATION_NAME,
     WORKLOAD_CONTAINER,
@@ -90,31 +96,6 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_database_relation_broken,
         )
 
-        # Hydra oauth integration
-        self.oauth = OAuthRequirer(self, self._oauth_client_config)
-
-        # Lifecycle event handlers
-        self.framework.observe(
-            self.on.identity_saml_pebble_ready, self._on_identity_saml_pebble_ready
-        )
-        self.framework.observe(self.on.leader_elected, self._on_leader_elected)
-        self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.framework.observe(self.on.update_status, self._on_update_status)
-        self.framework.observe(self.on.start, self._on_start)
-        self.framework.observe(self.on.peer_relation_changed, self._on_peer_relation_changed)
-
-        # self.framework.observe(
-        #     self.on[HYDRA_INTEGRATION_NAME].relation_changed, self._holistic_handler
-        # )
-
-        # peers
-        self.framework.observe(
-            self.on[PEER_INTEGRATION_NAME].relation_created, self._holistic_handler
-        )
-        self.framework.observe(
-            self.on[PEER_INTEGRATION_NAME].relation_changed, self._holistic_handler
-        )
-
         # Ingress integration
         self.ingress_requirer = IngressPerAppRequirer(
             self,
@@ -130,6 +111,37 @@ class IdentitySAMLProviderCharm(CharmBase):
         self.framework.observe(
             self.ingress_requirer.on.revoked,
             self._on_ingress_revoked,
+        )
+
+        # Hydra oauth integration
+        self._oauth_client_config = ClientConfig(
+            redirect_uri=[
+                f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}/callback",
+                self.ingress_requirer.url + "/callback",
+            ],
+            grant_types=OAUTH_GRANT_TYPES,
+            scope=OAUTH_SCOPES,
+        )
+        self.oauth = OAuthRequirer(
+            self, client_config=self._oauth_client_config, relation_name=HYDRA_INTEGRATION_NAME
+        )
+
+        # Lifecycle event handlers
+        self.framework.observe(
+            self.on.identity_saml_pebble_ready, self._on_identity_saml_pebble_ready
+        )
+        self.framework.observe(self.on.leader_elected, self._on_leader_elected)
+        self.framework.observe(self.on.config_changed, self._on_config_changed)
+        self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(self.on.start, self._on_start)
+        self.framework.observe(self.on.peer_relation_changed, self._on_peer_relation_changed)
+
+        # peers
+        self.framework.observe(
+            self.on[PEER_INTEGRATION_NAME].relation_created, self._holistic_handler
+        )
+        self.framework.observe(
+            self.on[PEER_INTEGRATION_NAME].relation_changed, self._holistic_handler
         )
 
         # Public route integration
@@ -170,16 +182,6 @@ class IdentitySAMLProviderCharm(CharmBase):
     @property
     def _pebble_layer(self) -> Layer:
         return self._pebble_service.render_pebble_layer(self.oauth.get_provider_info())
-
-    # @property
-    # def config_files(self) -> Iterable[ContainerFile]:
-    #     database_config = DatabaseConfig.load(self.database_requirer)
-    #     return [
-    #         ConfigFile.from_sources(
-    #             database_config,
-    #             self.public_route_integration,
-    #         ),
-    #     ]
 
     def _on_identity_saml_pebble_ready(self, event: PebbleReadyEvent) -> None:
         if not container_connectivity(self):
@@ -239,6 +241,34 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._holistic_handler(event)
 
     def _on_database_relation_broken(self, event: RelationBrokenEvent) -> None:
+        self._holistic_handler(event)
+
+    def _on_ingress_ready(self, event: IngressPerAppReadyEvent) -> None:
+        self._holistic_handler(event)
+
+    def _on_ingress_revoked(self, event: IngressPerAppRevokedEvent) -> None:
+        self._holistic_handler(event)
+
+    def _on_public_route_changed(self, event: RelationJoinedEvent | RelationChangedEvent) -> None:
+        # This is needed due to how traefik_route lib handles the event
+        self.public_route_requirer._relation = event.relation
+
+        if not self.public_route_requirer.is_ready():
+            return
+
+        if self.unit.is_leader():
+            public_route_config = self.public_route_integration.config
+            self.public_route_requirer.submit_to_traefik(public_route_config)
+
+        self._holistic_handler(event)
+
+    def _on_public_route_broken(self, event: RelationBrokenEvent) -> None:
+        if self.unit.is_leader():
+            logger.info("This application no longer has public-route integration")
+
+        # This is needed due to how traefik_route lib handles the event
+        self.public_route_requirer._relation = event.relation
+
         self._holistic_handler(event)
 
     def _holistic_handler(self, event: HookEvent) -> None:

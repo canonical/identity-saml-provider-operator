@@ -4,7 +4,7 @@
 import logging
 from typing import Optional
 
-from charms.hydra.v0.oauth import OAuthProviderConfig
+from charms.hydra.v0.oauth import OauthProviderConfig
 from ops import Container, ModelError, Unit
 from ops.pebble import Layer, LayerDict
 
@@ -60,7 +60,7 @@ class PebbleService:
         except Exception as e:
             raise PebbleServiceError(f"Pebble failed to restart the workload service. Error: {e}")
 
-    def render_pebble_layer(self, oauth: Optional[OAuthProviderConfig] = None) -> Layer:
+    def render_pebble_layer(self, oauth: Optional[OauthProviderConfig] = None) -> Layer:
         hydra_oath_url = oauth.issuer_url if oauth else ""
 
         container = {

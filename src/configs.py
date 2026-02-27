@@ -2,6 +2,8 @@
 # See LICENSE file for licensing details.
 
 
+from typing import Any, MutableMapping, TypeAlias
+
 from ops import ConfigData
 
 from env_vars import EnvVars
@@ -17,3 +19,6 @@ class CharmConfig:
         return {
             "IDENTITY_SAML_LOG_LEVEL": self._config["log-level"],
         }
+
+
+ServiceConfigs: TypeAlias = MutableMapping[str, Any]

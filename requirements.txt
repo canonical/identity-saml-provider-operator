@@ -1,3 +1,4 @@
 cosl >= 0.0.26
 ops == 3.5.0
 pydantic ~= 2.0
+jinja2

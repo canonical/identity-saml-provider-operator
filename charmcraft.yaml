@@ -50,6 +50,14 @@ requires:
     optional: true
     description: |
       Recommended way to expose the charm to the public internet
+  database:
+    interface: postgresql_client
+    limit: 1
+    optional: false
+  ingress:
+    interface: ingress
+    limit: 1
+    optional: false
 
 config:
   options:
