@@ -1,0 +1,44 @@
+{% set identifier = "{}-{}".format(model, app) %}
+{% set public_svc = "http://{}.{}.svc.cluster.local:{}".format(app, model, port) %}
+
+{
+    "http": {
+        "routers": {
+            "juju-{{ identifier }}-root-router": {
+                "entryPoints": [
+                    "web"
+                ],
+                "rule": "PathPrefix(`/`)",
+                "service": "juju-{{ identifier }}-service"
+            },
+            "juju-{{ identifier }}-root-router-tls": {
+                "entryPoints": [
+                    "websecure"
+                ],
+                "rule": "PathPrefix(`/`)",
+                "service": "juju-{{ identifier }}-service",
+                "tls": {
+                    "domains": [
+                        {
+                            "main": "{{ external_host }}",
+                            "sans": [
+                                "*.{{ external_host }}"
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+        "services": {
+            "juju-{{ identifier }}-service": {
+                "loadBalancer": {
+                    "servers": [
+                        {
+                            "url": "{{ public_svc }}"
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}

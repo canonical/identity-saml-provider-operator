@@ -6,6 +6,7 @@
 
 import logging
 from typing import Any
+from urllib.parse import urljoin
 
 from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseCreatedEvent,
@@ -13,7 +14,6 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseRequires,
 )
 from charms.hydra.v0.oauth import ClientConfig, OAuthRequirer
-from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from charms.traefik_k8s.v2.ingress import (
     IngressPerAppReadyEvent,
     IngressPerAppRequirer,
@@ -25,7 +25,6 @@ from ops import (
     LeaderElectedEvent,
     PebbleReadyEvent,
     RelationBrokenEvent,
-    RelationJoinedEvent,
     StartEvent,
     UpdateStatusEvent,
 )
@@ -43,11 +42,10 @@ from constants import (
     OAUTH_GRANT_TYPES,
     OAUTH_SCOPES,
     PEER_INTEGRATION_NAME,
-    PUBLIC_ROUTE_INTEGRATION_NAME,
     WORKLOAD_CONTAINER,
 )
 from exceptions import PebbleServiceError
-from integrations import DatabaseConfig, IngressIntegration, PeerData, PublicRouteIntegration
+from integrations import DatabaseConfig, IngressIntegration, PeerData
 from services import PebbleService, WorkloadService
 from utils import (
     container_connectivity,
@@ -62,11 +60,6 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._container = self.unit.get_container(WORKLOAD_CONTAINER)
         self._workload_service = WorkloadService(self.unit)
         self._pebble_service = PebbleService(self.unit)
-
-        # self._k8s_client = Client(field_manager=self.app.name)
-        # self._statefulset = StatefulSetResource(
-        #     client=self._k8s_client, namespace=self.model.name, name=self.app.name
-        # )
 
         # Database integration
         self.database_requirer = DatabaseRequires(
@@ -124,43 +117,22 @@ class IdentitySAMLProviderCharm(CharmBase):
             self.on[PEER_INTEGRATION_NAME].relation_changed, self._holistic_handler
         )
 
-        # Public route integration
-        self.public_route_requirer = TraefikRouteRequirer(
-            self,
-            relation=self.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME),
-            relation_name=PUBLIC_ROUTE_INTEGRATION_NAME,
-            raw=True,
-        )
-        self.public_route_integration = PublicRouteIntegration(self.public_route_requirer)
-        self.framework.observe(
-            self.on[PUBLIC_ROUTE_INTEGRATION_NAME].relation_joined,
-            self._on_public_route_changed,
-        )
-        self.framework.observe(
-            self.on[PUBLIC_ROUTE_INTEGRATION_NAME].relation_changed,
-            self._on_public_route_changed,
-        )
-        self.framework.observe(
-            self.on[PUBLIC_ROUTE_INTEGRATION_NAME].relation_broken,
-            self._on_public_route_broken,
-        )
-
-        if self.ingress_requirer.url:
-            redirect_uri = self.ingress_requirer.url + "/callback"
-        else:
-            redirect_uri = f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}/callback"
         oauth_client_config = ClientConfig(
-            redirect_uri=redirect_uri,
+            redirect_uri=self._external_url + "/callback",
             grant_types=OAUTH_GRANT_TYPES,
             scope=OAUTH_SCOPES,
         )
-        self._oauth_requirer = OAuthRequirer(
-            self, client_config=oauth_client_config, relation_name=HYDRA_INTEGRATION_NAME
-        )
+        self.oauth = OAuthRequirer(self, oauth_client_config, relation_name=HYDRA_INTEGRATION_NAME)
+
+    @property
+    def _external_url(self) -> str:
+        if self.ingress_requirer.url:
+            return self.ingress_requirer.url
+        return f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}"
 
     @property
     def _pebble_layer(self) -> Layer:
-        oauth_info = self._oauth_requirer.get_provider_info()
+        oauth_info = self.oauth.get_provider_info()
         logger.info(f"Generating Pebble layer with OAuth info: {oauth_info}")
         database_config = DatabaseConfig.load(self.database_requirer)
         return self._pebble_service.render_pebble_layer(oauth_info, database_config)
@@ -212,31 +184,10 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._holistic_handler(event)
 
     def _on_ingress_ready(self, event: IngressPerAppReadyEvent) -> None:
+        self._set_client_config()
         self._holistic_handler(event)
 
     def _on_ingress_revoked(self, event: IngressPerAppRevokedEvent) -> None:
-        self._holistic_handler(event)
-
-    def _on_public_route_changed(self, event: RelationJoinedEvent | RelationChangedEvent) -> None:
-        # This is needed due to how traefik_route lib handles the event
-        self.public_route_requirer._relation = event.relation
-
-        if not self.public_route_requirer.is_ready():
-            return
-
-        if self.unit.is_leader():
-            public_route_config = self.public_route_integration.config
-            self.public_route_requirer.submit_to_traefik(public_route_config)
-
-        self._holistic_handler(event)
-
-    def _on_public_route_broken(self, event: RelationBrokenEvent) -> None:
-        if self.unit.is_leader():
-            logger.info("This application no longer has public-route integration")
-
-        # This is needed due to how traefik_route lib handles the event
-        self.public_route_requirer._relation = event.relation
-
         self._holistic_handler(event)
 
     def _holistic_handler(self, event: HookEvent) -> None:
@@ -249,7 +200,7 @@ class IdentitySAMLProviderCharm(CharmBase):
             self.unit.status = WaitingStatus("Waiting for ingress URL")
             return
 
-        if not self._oauth_requirer.is_client_created():
+        if not self.oauth.is_client_created():
             self.unit.status = WaitingStatus("Waiting for OAuth provider relation")
             return
 
@@ -270,6 +221,14 @@ class IdentitySAMLProviderCharm(CharmBase):
             return
 
         self.unit.status = ActiveStatus()
+
+    def _set_client_config(self):
+        client_config = ClientConfig(
+            urljoin(self._external_url, "/callback"),
+            OAUTH_SCOPES,
+            OAUTH_GRANT_TYPES,
+        )
+        self.oauth.update_client_config(client_config)
 
 
 logger = logging.getLogger(__name__)
