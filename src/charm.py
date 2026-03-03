@@ -47,7 +47,7 @@ from constants import (
     WORKLOAD_CONTAINER,
 )
 from exceptions import PebbleServiceError
-from integrations import IngressIntegration, PeerData, PublicRouteIntegration
+from integrations import DatabaseConfig, IngressIntegration, PeerData, PublicRouteIntegration
 from services import PebbleService, WorkloadService
 from utils import (
     container_connectivity,
@@ -105,9 +105,6 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_ingress_revoked,
         )
 
-        # Hydra oauth integration - deferred until ingress is ready
-        self._oauth_requirer: OAuthRequirer | None = None
-
         # Lifecycle event handlers
         self.framework.observe(
             self.on.identity_saml_provider_pebble_ready,
@@ -148,29 +145,25 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_public_route_broken,
         )
 
-    @property
-    def oauth(self) -> OAuthRequirer | None:
-        """Return OAuth requirer only if ingress is ready."""
-        if self._oauth_requirer is None and self.ingress_requirer.url:
-            # Ingress is now ready, initialize OAuth integration
-            redirect_uri = [
-                f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}/callback",
-                self.ingress_requirer.url + "/callback",
-            ]
-            oauth_client_config = ClientConfig(
-                redirect_uri=redirect_uri,
-                grant_types=OAUTH_GRANT_TYPES,
-                scope=OAUTH_SCOPES,
-            )
-            self._oauth_requirer = OAuthRequirer(
-                self, client_config=oauth_client_config, relation_name=HYDRA_INTEGRATION_NAME
-            )
-        return self._oauth_requirer
+        if self.ingress_requirer.url:
+            redirect_uri = self.ingress_requirer.url + "/callback"
+        else:
+            redirect_uri = f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}/callback"
+        oauth_client_config = ClientConfig(
+            redirect_uri=redirect_uri,
+            grant_types=OAUTH_GRANT_TYPES,
+            scope=OAUTH_SCOPES,
+        )
+        self._oauth_requirer = OAuthRequirer(
+            self, client_config=oauth_client_config, relation_name=HYDRA_INTEGRATION_NAME
+        )
 
     @property
     def _pebble_layer(self) -> Layer:
-        oauth_info = self.oauth.get_provider_info() if self.oauth else None
-        return self._pebble_service.render_pebble_layer(oauth_info)
+        oauth_info = self._oauth_requirer.get_provider_info()
+        logger.info(f"Generating Pebble layer with OAuth info: {oauth_info}")
+        database_config = DatabaseConfig.load(self.database_requirer)
+        return self._pebble_service.render_pebble_layer(oauth_info, database_config)
 
     def _on_identity_saml_provider_pebble_ready(self, event: PebbleReadyEvent) -> None:
         if not container_connectivity(self):
@@ -212,14 +205,6 @@ class IdentitySAMLProviderCharm(CharmBase):
             event.defer()
             return
 
-        # try:
-        #     self._cli.migrate()
-        # except MigrationError:
-        #     logger.error(
-        #         "Auto migration job failed. Please use the run-migration Juju action to run the migration manually"
-        #     )
-        #     return
-
     def _on_database_changed(self, event: DatabaseEndpointsChangedEvent) -> None:
         self._holistic_handler(event)
 
@@ -227,13 +212,9 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._holistic_handler(event)
 
     def _on_ingress_ready(self, event: IngressPerAppReadyEvent) -> None:
-        # Trigger OAuth requirer initialization now that ingress is ready
-        _ = self.oauth  # Access the property to trigger initialization
         self._holistic_handler(event)
 
     def _on_ingress_revoked(self, event: IngressPerAppRevokedEvent) -> None:
-        # Clear OAuth requirer when ingress is revoked
-        self._oauth_requirer = None
         self._holistic_handler(event)
 
     def _on_public_route_changed(self, event: RelationJoinedEvent | RelationChangedEvent) -> None:
@@ -264,9 +245,19 @@ class IdentitySAMLProviderCharm(CharmBase):
             event.defer()
             return
 
-        if not self.oauth:
-            self.unit.status = WaitingStatus("Waiting for ingress integration")
-            event.defer()
+        if not self.ingress_requirer.url:
+            self.unit.status = WaitingStatus("Waiting for ingress URL")
+            return
+
+        if not self._oauth_requirer.is_client_created():
+            self.unit.status = WaitingStatus("Waiting for OAuth provider relation")
+            return
+
+        if not self.model.relations[DATABASE_INTEGRATION_NAME]:
+            self.unit.status = BlockedStatus(f"Missing integration {DATABASE_INTEGRATION_NAME}")
+            return
+        if not self.database_requirer.is_resource_created():
+            self.unit.status = WaitingStatus("Waiting for database creation")
             return
 
         try:

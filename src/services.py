@@ -15,6 +15,7 @@ from constants import (
     WORKLOAD_SERVICE,
 )
 from exceptions import PebbleServiceError
+from integrations import DatabaseConfig
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,11 @@ class PebbleService:
         except Exception as e:
             raise PebbleServiceError(f"Pebble failed to restart the workload service. Error: {e}")
 
-    def render_pebble_layer(self, oauth: Optional[OauthProviderConfig] = None) -> Layer:
+    def render_pebble_layer(
+        self,
+        oauth: Optional[OauthProviderConfig] = None,
+        database: Optional[DatabaseConfig] = None,
+    ) -> Layer:
         hydra_oath_url = oauth.issuer_url if oauth else ""
 
         container = {
@@ -71,6 +76,11 @@ class PebbleService:
             "environment": {
                 "SAML_PROVIDER_HYDRA_PUBLIC_URL": hydra_oath_url,
                 "SAML_PROVIDER_BRIDGE_BASE_PORT": str(APPLICATION_PORT),
+                "SAML_PROVIDER_DB_HOST": database.host if database else "",
+                "SAML_PROVIDER_DB_PORT": str(database.port) if database else "",
+                "SAML_PROVIDER_DB_NAME": database.database if database else "",
+                "SAML_PROVIDER_DB_USER": database.username if database else "",
+                "SAML_PROVIDER_DB_PASSWORD": database.password if database else "",
             },
         }
 
