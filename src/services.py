@@ -10,6 +10,8 @@ from ops.pebble import Layer, LayerDict
 
 from constants import (
     APPLICATION_PORT,
+    CERTIFICATES_FILE,
+    LOCAL_CERTIFICATES_FILE,
     WORKLOAD_CONTAINER,
     WORKLOAD_RUN_COMMAND,
     WORKLOAD_SERVICE,
@@ -38,6 +40,20 @@ class WorkloadService:
 
     def open_ports(self) -> None:
         self._unit.open_port(protocol="tcp", port=APPLICATION_PORT)
+
+    def update_ca_certs(self) -> None:
+        ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
+
+        current = (
+            self._container.pull(CERTIFICATES_FILE).read()
+            if self._container.exists(CERTIFICATES_FILE)
+            else ""
+        )
+
+        if current == ca_certs:
+            return
+
+        self._container.push(CERTIFICATES_FILE, ca_certs, make_dirs=True)
 
 
 class PebbleService:

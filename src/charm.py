@@ -5,9 +5,15 @@
 """A Juju charm for Identity SAML provider."""
 
 import logging
+import subprocess
 from typing import Any
 from urllib.parse import urljoin
 
+import ops
+
+from charms.certificate_transfer_interface.v1.certificate_transfer import (
+    CertificateTransferRequires,
+)
 from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseCreatedEvent,
     DatabaseEndpointsChangedEvent,
@@ -35,17 +41,21 @@ from ops.pebble import Layer
 
 from constants import (
     APPLICATION_PORT,
+    CERTIFICATE_TRANSFER_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
     HYDRA_INTEGRATION_NAME,
     INGRESS_INTEGRATION_NAME,
+    LOCAL_CERTIFICATES_PATH,
+    LOCAL_CHARM_CERTIFICATES_FILE,
+    LOCAL_CHARM_CERTIFICATES_PATH,
     OAUTH_GRANT_TYPES,
     OAUTH_SCOPES,
     PEER_INTEGRATION_NAME,
     WORKLOAD_CONTAINER,
 )
 from exceptions import PebbleServiceError
-from integrations import DatabaseConfig, IngressIntegration, PeerData
+from integrations import DatabaseConfig, IngressIntegration, PeerData, TLSCertificates
 from services import PebbleService, WorkloadService
 from utils import (
     container_connectivity,
@@ -98,6 +108,20 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_ingress_revoked,
         )
 
+        # Certificate transfer integration
+        self.certificate_transfer_requirer = CertificateTransferRequires(
+            self,
+            relationship_name=CERTIFICATE_TRANSFER_INTEGRATION_NAME,
+        )
+        self.framework.observe(
+            self.certificate_transfer_requirer.on.certificate_set_updated,
+            self._on_certificate_transfer_changed,
+        )
+        self.framework.observe(
+            self.certificate_transfer_requirer.on.certificates_removed,
+            self._on_certificate_transfer_changed,
+        )
+
         # Lifecycle event handlers
         self.framework.observe(
             self.on.identity_saml_provider_pebble_ready,
@@ -117,12 +141,21 @@ class IdentitySAMLProviderCharm(CharmBase):
             self.on[PEER_INTEGRATION_NAME].relation_changed, self._holistic_handler
         )
 
+        # Oauth integration
         oauth_client_config = ClientConfig(
             redirect_uri=self._external_url + "/callback",
             grant_types=OAUTH_GRANT_TYPES,
             scope=OAUTH_SCOPES,
         )
         self.oauth = OAuthRequirer(self, oauth_client_config, relation_name=HYDRA_INTEGRATION_NAME)
+        self.framework.observe(
+            self.oauth_requirer.on.oauth_info_changed,
+            self._on_oauth_info_changed,
+        )
+        self.framework.observe(
+            self.oauth_requirer.on.oauth_info_removed,
+            self._on_oauth_info_changed,
+        )
 
     @property
     def _external_url(self) -> str:
@@ -188,6 +221,28 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._holistic_handler(event)
 
     def _on_ingress_revoked(self, event: IngressPerAppRevokedEvent) -> None:
+        self._holistic_handler(event)
+
+    def _ensure_tls(self) -> bool:
+        LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        if certificates := TLSCertificates.load(self.certificate_transfer_requirer).ca_bundle:
+            LOCAL_CHARM_CERTIFICATES_FILE.write_text(certificates)
+        elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
+            LOCAL_CHARM_CERTIFICATES_FILE.unlink()
+
+        subprocess.run([
+            "update-ca-certificates",
+            "--fresh",
+            "--etccertsdir",
+            LOCAL_CERTIFICATES_PATH,
+            "--localcertsdir",
+            LOCAL_CHARM_CERTIFICATES_PATH,
+        ])
+        self._workload_service.update_ca_certs()
+        return True
+
+    def _on_certificate_transfer_changed(self, event: ops.EventBase) -> None:
         self._holistic_handler(event)
 
     def _holistic_handler(self, event: HookEvent) -> None:

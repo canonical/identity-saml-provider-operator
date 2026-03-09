@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import Any, KeysView, Self, TypeAlias
 from urllib.parse import urlparse
 
+from charms.certificate_transfer_interface.v1.certificate_transfer import (
+    CertificateTransferRequires,
+)
 from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
@@ -14,7 +17,11 @@ from jinja2 import Template
 from ops import Model
 
 from configs import ServiceConfigs
-from constants import APPLICATION_PORT, PEER_INTEGRATION_NAME
+from constants import (
+    APPLICATION_PORT,
+    CERTIFICATE_TRANSFER_INTEGRATION_NAME,
+    PEER_INTEGRATION_NAME,
+)
 from env_vars import EnvVars
 
 logger = logging.getLogger(__name__)
@@ -189,3 +196,31 @@ class PublicRouteIntegration:
     @property
     def secured(self) -> bool:
         return self.url.scheme == "https"
+
+
+@dataclass(frozen=True)
+class TLSCertificates:
+    ca_bundle: str
+
+    @classmethod
+    def load(cls, requirer: CertificateTransferRequires) -> "TLSCertificates":
+        """Fetch the CA certificates from all "receive-ca-cert" integrations."""
+        # deal with v1 relations
+        ca_certs = requirer.get_all_certificates()
+
+        # deal with v0 relations
+        cert_transfer_integrations = requirer.charm.model.relations[
+            CERTIFICATE_TRANSFER_INTEGRATION_NAME
+        ]
+
+        for integration in cert_transfer_integrations:
+            ca = {
+                integration.data[unit]["ca"]
+                for unit in integration.units
+                if "ca" in integration.data.get(unit, {})
+            }
+            ca_certs.update(ca)
+
+        ca_bundle = "\n".join(sorted(ca_certs))
+
+        return cls(ca_bundle=ca_bundle)
