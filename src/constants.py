@@ -3,7 +3,7 @@
 
 
 # Charm constants
-from zipfile import Path
+from pathlib import Path
 
 
 WORKLOAD_CONTAINER = "identity-saml-provider"
@@ -17,13 +17,19 @@ LOCAL_CERTIFICATES_FILE = Path(LOCAL_CERTIFICATES_PATH / "ca-certificates.crt")
 LOCAL_CHARM_CERTIFICATES_PATH = Path("/tmp/charm")
 LOCAL_CHARM_CERTIFICATES_FILE = Path(LOCAL_CHARM_CERTIFICATES_PATH / "charm-certificates.crt")
 
+# Bridge certificate (used by the workload service)
+LOCAL_BRIDGE_CERT_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.crt"
+LOCAL_BRIDGE_KEY_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.key"
+CONTAINER_BRIDGE_CERT = Path("/root/.local/certs/bridge.crt")
+CONTAINER_BRIDGE_KEY = Path("/root/.local/certs/bridge.key")
+
 # Application constants
 APPLICATION_PORT = 8082
 ORY_HYDRA_HTTP_PORT = 8080
 ORY_KRATOS_HTTP_PORT = 8081
 WORKLOAD_RUN_COMMAND = f"/usr/bin/{WORKLOAD_SERVICE}"
-CERTIFICATES_PATH = Path("/etc/ssl/certs/")
-CERTIFICATES_FILE = Path(CERTIFICATES_PATH / "ca-certificates.crt")
+CONTAINER_CERTIFICATES_PATH = Path("/etc/ssl/certs/")
+CONTAINER_CERTIFICATES_FILE = Path(CONTAINER_CERTIFICATES_PATH / "ca-certificates.crt")
 
 # Integration constants
 PEER_INTEGRATION_NAME = "peer"

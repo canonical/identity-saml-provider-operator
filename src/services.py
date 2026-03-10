@@ -10,8 +10,12 @@ from ops.pebble import Layer, LayerDict
 
 from constants import (
     APPLICATION_PORT,
-    CERTIFICATES_FILE,
+    CONTAINER_CERTIFICATES_FILE,
     LOCAL_CERTIFICATES_FILE,
+    LOCAL_BRIDGE_CERT_FILE,
+    LOCAL_BRIDGE_KEY_FILE,
+    CONTAINER_BRIDGE_CERT,
+    CONTAINER_BRIDGE_KEY,
     WORKLOAD_CONTAINER,
     WORKLOAD_RUN_COMMAND,
     WORKLOAD_SERVICE,
@@ -43,17 +47,32 @@ class WorkloadService:
 
     def update_ca_certs(self) -> None:
         ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
+        container_cert = str(CONTAINER_CERTIFICATES_FILE)
 
         current = (
-            self._container.pull(CERTIFICATES_FILE).read()
-            if self._container.exists(CERTIFICATES_FILE)
+            self._container.pull(container_cert).read()
+            if self._container.exists(container_cert)
             else ""
         )
 
         if current == ca_certs:
             return
 
-        self._container.push(CERTIFICATES_FILE, ca_certs, make_dirs=True)
+        self._container.push(container_cert, ca_certs, make_dirs=True)
+
+    def update_bridge_certificates(self) -> None:
+        container_cert = str(CONTAINER_BRIDGE_CERT)
+        container_key = str(CONTAINER_BRIDGE_KEY)
+
+        # If container already has both files, nothing to do.
+        if self._container.exists(container_cert) and self._container.exists(container_key):
+            return
+
+        if LOCAL_BRIDGE_CERT_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.exists():
+            cert_text = LOCAL_BRIDGE_CERT_FILE.read_text()
+            key_text = LOCAL_BRIDGE_KEY_FILE.read_text()
+            self._container.push(container_cert, cert_text, make_dirs=True)
+            self._container.push(container_key, key_text, make_dirs=True)
 
 
 class PebbleService:
@@ -97,6 +116,9 @@ class PebbleService:
                 "SAML_PROVIDER_DB_NAME": database.database if database else "",
                 "SAML_PROVIDER_DB_USER": database.username if database else "",
                 "SAML_PROVIDER_DB_PASSWORD": database.password if database else "",
+                "SAML_PROVIDER_HYDRA_CA_CERT_PATH": str(CONTAINER_CERTIFICATES_FILE),
+                "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
+                "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
             },
         }
 
@@ -104,15 +126,5 @@ class PebbleService:
             "summary": "identity-saml-provider layer",
             "description": "pebble config layer for identity platform saml provider",
             "services": {WORKLOAD_CONTAINER: container},
-            # "checks": {
-            #     "http-check": {
-            #         "override": "replace",
-            #         "period": "1m",
-            #         "level": "alive",
-            #         "http": {
-            #             "url": f"http://localhost:{APPLICATION_PORT}/_status/ping",
-            #         },
-            #     }
-            # },
         }
         return Layer(pebble_layer)

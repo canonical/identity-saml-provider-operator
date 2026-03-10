@@ -19,7 +19,12 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseEndpointsChangedEvent,
     DatabaseRequires,
 )
-from charms.hydra.v0.oauth import ClientConfig, OAuthRequirer
+from charms.hydra.v0.oauth import (
+    ClientConfig,
+    OAuthInfoChangedEvent,
+    OAuthInfoRemovedEvent,
+    OAuthRequirer,
+)
 from charms.traefik_k8s.v2.ingress import (
     IngressPerAppReadyEvent,
     IngressPerAppRequirer,
@@ -49,6 +54,8 @@ from constants import (
     LOCAL_CERTIFICATES_PATH,
     LOCAL_CHARM_CERTIFICATES_FILE,
     LOCAL_CHARM_CERTIFICATES_PATH,
+    LOCAL_BRIDGE_CERT_FILE,
+    LOCAL_BRIDGE_KEY_FILE,
     OAUTH_GRANT_TYPES,
     OAUTH_SCOPES,
     PEER_INTEGRATION_NAME,
@@ -149,11 +156,11 @@ class IdentitySAMLProviderCharm(CharmBase):
         )
         self.oauth = OAuthRequirer(self, oauth_client_config, relation_name=HYDRA_INTEGRATION_NAME)
         self.framework.observe(
-            self.oauth_requirer.on.oauth_info_changed,
+            self.oauth.on.oauth_info_changed,
             self._on_oauth_info_changed,
         )
         self.framework.observe(
-            self.oauth_requirer.on.oauth_info_removed,
+            self.oauth.on.oauth_info_removed,
             self._on_oauth_info_changed,
         )
 
@@ -195,6 +202,9 @@ class IdentitySAMLProviderCharm(CharmBase):
     def _on_peer_relation_changed(self, event: RelationChangedEvent) -> None:
         self._holistic_handler(event)
 
+    def _on_oauth_info_changed(self, event: OAuthInfoChangedEvent | OAuthInfoRemovedEvent) -> None:
+        self._holistic_handler(event)
+
     def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
         if not container_connectivity(self):
             self.unit.status = WaitingStatus("Container is not connected yet")
@@ -223,7 +233,7 @@ class IdentitySAMLProviderCharm(CharmBase):
     def _on_ingress_revoked(self, event: IngressPerAppRevokedEvent) -> None:
         self._holistic_handler(event)
 
-    def _ensure_tls(self) -> bool:
+    def _ensure_tls(self) -> None:
         LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
         if certificates := TLSCertificates.load(self.certificate_transfer_requirer).ca_bundle:
@@ -240,7 +250,36 @@ class IdentitySAMLProviderCharm(CharmBase):
             LOCAL_CHARM_CERTIFICATES_PATH,
         ])
         self._workload_service.update_ca_certs()
-        return True
+
+    def _ensure_bridge_certificates(self) -> None:
+        LOCAL_BRIDGE_CERT_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        if not (LOCAL_BRIDGE_CERT_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.exists()):
+            try:
+                subprocess.run(
+                    [
+                        "openssl",
+                        "req",
+                        "-x509",
+                        "-newkey",
+                        "rsa:2048",
+                        "-keyout",
+                        str(LOCAL_BRIDGE_KEY_FILE),
+                        "-out",
+                        str(LOCAL_BRIDGE_CERT_FILE),
+                        "-days",
+                        "365",
+                        "-nodes",
+                        "-subj",
+                        "/CN=localhost",
+                    ],
+                    check=True,
+                )
+            except Exception:
+                LOCAL_BRIDGE_KEY_FILE.write_text("")
+                LOCAL_BRIDGE_CERT_FILE.write_text("")
+
+        self._workload_service.update_bridge_certificates()
 
     def _on_certificate_transfer_changed(self, event: ops.EventBase) -> None:
         self._holistic_handler(event)
@@ -265,6 +304,9 @@ class IdentitySAMLProviderCharm(CharmBase):
         if not self.database_requirer.is_resource_created():
             self.unit.status = WaitingStatus("Waiting for database creation")
             return
+
+        self._ensure_tls()
+        self._ensure_bridge_certificates()
 
         try:
             self._pebble_service.plan(self._pebble_layer)
