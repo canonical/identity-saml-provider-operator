@@ -1,0 +1,94 @@
+# This file configures Charmcraft.
+# See https://canonical-charmcraft.readthedocs-hosted.com/en/stable/reference/files/charmcraft-yaml-file/# for guidance.
+
+name: identity-saml-provider-operator
+type: charm
+title: Identity SAML Provider
+summary: |
+  A complete SAML-to-OIDC bridge solution that enables SAML-based Single Sign-On (SSO) through Ory Hydra, allowing seamless integration between SAML Service Providers and OIDC providers.
+description: |
+  This project provides a SAML Identity Provider that bridges between traditional SAML Service Providers and modern OIDC-based authentication systems
+
+assumes:
+  - juju >= 3.6
+  - k8s-api
+
+peers:
+  peer:
+    interface: identity-saml-provider-peer
+
+containers:
+  identity-saml-provider:
+    resource: oci-image
+
+resources:
+  oci-image:
+    type: oci-image
+    description: OCI image for Identity SAML Provider
+    upstream-source: ghcr.io/canonical/identity-saml-provider:v0.1.1
+
+charm-libs:
+  - lib: hydra.oauth
+    version: "0.11"  # Must be a string, not a number.
+  - lib: traefik_k8s.traefik_route
+    version: "0.3"  # Must be a string, not a number.
+  - lib: traefik_k8s.ingress
+    version: "2.15"  # Must be a string, not a number.
+  - lib: data_platform_libs.data_interfaces
+    version: "0.58"  # Must be a string, not a number.
+  - lib: certificate_transfer_interface.certificate_transfer
+    version: "1.15"  # Must be a string, not a number.
+
+requires:
+  oauth:
+    interface: oauth
+    limit: 1
+    optional: true
+    description: |
+      Receive oauth server's info and a set of client credentials.
+      This relation can be used to integrate with an oAuth2/OIDC Provider.
+  database:
+    interface: postgresql_client
+    limit: 1
+    optional: false
+  ingress:
+    interface: ingress
+    limit: 1
+    optional: false
+  receive-ca-cert:
+    interface: certificate_transfer
+    description: |
+      Receive a CA cert.
+      This relation can be used with a local CA to obtain the CA cert that was used to sign proxied
+      endpoints.
+
+config:
+  options:
+    log-level:
+      description: |
+        Configures the log level of gunicorn.
+
+        Acceptable values are: "info", "debug", "warning", "error" and "critical"
+      default: "info"
+      type: string
+    cpu:
+      description: |
+        K8s cpu resource limit, e.g. "1" or "500m". Default is unset (no limit). This value is used
+        for the "limits" portion of the resource requirements (the "requests" portion is
+        automatically deduced from it).
+        See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+      type: string
+    memory:
+      description: |
+        K8s memory resource limit, e.g. "1Gi". Default is unset (no limit). This value is used
+        for the "limits" portion of the resource requirements (the "requests" portion is
+        automatically deduced from it).
+        See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+      type: string
+
+parts:
+  charm:
+    plugin: charm
+
+platforms:
+  ubuntu@24.04:amd64:
