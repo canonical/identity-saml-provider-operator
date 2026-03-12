@@ -21,7 +21,7 @@ from constants import (
     WORKLOAD_SERVICE,
 )
 from exceptions import PebbleServiceError
-from integrations import DatabaseConfig
+from integrations import DatabaseConfig, IngressIntegration
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +100,12 @@ class PebbleService:
         self,
         oauth: Optional[OauthProviderConfig] = None,
         database: Optional[DatabaseConfig] = None,
+        ingress: Optional[IngressIntegration] = None,
     ) -> Layer:
         hydra_oath_url = oauth.issuer_url if oauth else ""
+        ingress_url = ingress.url if ingress else ""
+        client_id = oauth.client_id if oauth else ""
+        client_secret = oauth.client_secret if oauth else ""
 
         container = {
             "override": "replace",
@@ -119,6 +123,9 @@ class PebbleService:
                 "SAML_PROVIDER_HYDRA_CA_CERT_PATH": str(CONTAINER_CERTIFICATES_FILE),
                 "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
                 "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
+                "SAML_PROVIDER_BRIDGE_BASE_URL": ingress_url,
+                "SAML_PROVIDER_OIDC_CLIENT_ID": client_id,
+                "SAML_PROVIDER_OIDC_CLIENT_SECRET": client_secret,
             },
         }
 

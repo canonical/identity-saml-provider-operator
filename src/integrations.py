@@ -11,9 +11,7 @@ from charms.certificate_transfer_interface.v1.certificate_transfer import (
     CertificateTransferRequires,
 )
 from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
-from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
-from jinja2 import Template
 from ops import Model
 
 from configs import ServiceConfigs
@@ -134,68 +132,6 @@ class IngressIntegration:
         return {
             "APPLICATION_ROOT_URL": f"{parsed_url.scheme}://{parsed_url.netloc}",
         }
-
-
-class PublicRouteIntegration:
-    def __init__(self, requirer: TraefikRouteRequirer) -> None:
-        self.requirer = requirer
-        self._charm = requirer._charm
-
-    @property
-    def url(self) -> str:
-        if not (external_host := self.requirer.external_host):
-            return ""
-
-        external_endpoint = f"{self.requirer.scheme}://{external_host}"
-        return external_endpoint
-
-    @property
-    def config(self) -> dict:
-        if not self.url:
-            return {}
-
-        with open("templates/public-route.j2", "r") as file:
-            template = Template(file.read())
-
-        model, app = self._charm.model.name, self._charm.app.name
-        external_host = urlparse(self.url).hostname
-        return json.loads(
-            template.render(
-                model=model,
-                app=app,
-                port=APPLICATION_PORT,
-                external_host=external_host,
-            )
-        )
-
-    def to_service_configs(self) -> ServiceConfigs:
-        hostnames = [f"{self._charm.app.name}.{self._charm.model.name}.svc.cluster.local"]
-
-        if url := self.url:
-            parsed_url = urlparse(url)
-            if hostname := parsed_url.hostname:
-                hostnames.append(hostname)
-
-        return {
-            "hostnames": hostnames,
-        }
-
-    def to_env_vars(self) -> EnvVars:
-        if not (url := self.url):
-            return {
-                "APPLICATION_ROOT_URL": (
-                    f"http://{self._charm.app.name}.{self._charm.model.name}.svc.cluster.local:"
-                    f"{APPLICATION_PORT}"
-                ),
-            }
-
-        return {
-            "APPLICATION_ROOT_URL": url,
-        }
-
-    @property
-    def secured(self) -> bool:
-        return self.url.scheme == "https"
 
 
 @dataclass(frozen=True)

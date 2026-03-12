@@ -62,7 +62,12 @@ from constants import (
     WORKLOAD_CONTAINER,
 )
 from exceptions import PebbleServiceError
-from integrations import DatabaseConfig, IngressIntegration, PeerData, TLSCertificates
+from integrations import (
+    DatabaseConfig,
+    IngressIntegration,
+    PeerData,
+    TLSCertificates,
+)
 from services import PebbleService, WorkloadService
 from utils import (
     container_connectivity,
@@ -173,9 +178,11 @@ class IdentitySAMLProviderCharm(CharmBase):
     @property
     def _pebble_layer(self) -> Layer:
         oauth_info = self.oauth.get_provider_info()
-        logger.info(f"Generating Pebble layer with OAuth info: {oauth_info}")
         database_config = DatabaseConfig.load(self.database_requirer)
-        return self._pebble_service.render_pebble_layer(oauth_info, database_config)
+
+        return self._pebble_service.render_pebble_layer(
+            oauth_info, database_config, self.ingress_integration
+        )
 
     def _on_identity_saml_provider_pebble_ready(self, event: PebbleReadyEvent) -> None:
         if not container_connectivity(self):
@@ -274,10 +281,25 @@ class IdentitySAMLProviderCharm(CharmBase):
                         "/CN=localhost",
                     ],
                     check=True,
+                    capture_output=True,
+                    text=True,
                 )
-            except Exception:
-                LOCAL_BRIDGE_KEY_FILE.write_text("")
-                LOCAL_BRIDGE_CERT_FILE.write_text("")
+            except Exception as e:
+                logger.error("unexpected error generating bridge cert: %s", e)
+                try:
+                    if LOCAL_BRIDGE_KEY_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.read_text() == "":
+                        LOCAL_BRIDGE_KEY_FILE.unlink()
+                    if (
+                        LOCAL_BRIDGE_CERT_FILE.exists()
+                        and LOCAL_BRIDGE_CERT_FILE.read_text() == ""
+                    ):
+                        LOCAL_BRIDGE_CERT_FILE.unlink()
+                except Exception:
+                    pass
+                self.unit.status = BlockedStatus(
+                    "Failed to generate bridge TLS certificate; unexpected error"
+                )
+                return
 
         self._workload_service.update_bridge_certificates()
 
