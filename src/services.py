@@ -11,9 +11,6 @@ from ops.pebble import Layer, LayerDict
 from constants import (
     APPLICATION_PORT,
     CONTAINER_CERTIFICATES_FILE,
-    LOCAL_CERTIFICATES_FILE,
-    LOCAL_BRIDGE_CERT_FILE,
-    LOCAL_BRIDGE_KEY_FILE,
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
     WORKLOAD_CONTAINER,
@@ -21,7 +18,7 @@ from constants import (
     WORKLOAD_SERVICE,
 )
 from exceptions import PebbleServiceError
-from integrations import DatabaseConfig, IngressIntegration
+from integrations import DatabaseConfig, PublicRouteData
 
 logger = logging.getLogger(__name__)
 
@@ -44,35 +41,6 @@ class WorkloadService:
 
     def open_ports(self) -> None:
         self._unit.open_port(protocol="tcp", port=APPLICATION_PORT)
-
-    def update_ca_certs(self) -> None:
-        ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
-        container_cert = str(CONTAINER_CERTIFICATES_FILE)
-
-        current = (
-            self._container.pull(container_cert).read()
-            if self._container.exists(container_cert)
-            else ""
-        )
-
-        if current == ca_certs:
-            return
-
-        self._container.push(container_cert, ca_certs, make_dirs=True)
-
-    def update_bridge_certificates(self) -> None:
-        container_cert = str(CONTAINER_BRIDGE_CERT)
-        container_key = str(CONTAINER_BRIDGE_KEY)
-
-        # If container already has both files, nothing to do.
-        if self._container.exists(container_cert) and self._container.exists(container_key):
-            return
-
-        if LOCAL_BRIDGE_CERT_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.exists():
-            cert_text = LOCAL_BRIDGE_CERT_FILE.read_text()
-            key_text = LOCAL_BRIDGE_KEY_FILE.read_text()
-            self._container.push(container_cert, cert_text, make_dirs=True)
-            self._container.push(container_key, key_text, make_dirs=True)
 
 
 class PebbleService:
@@ -100,10 +68,10 @@ class PebbleService:
         self,
         oauth: Optional[OauthProviderConfig] = None,
         database: Optional[DatabaseConfig] = None,
-        ingress: Optional[IngressIntegration] = None,
+        public_route: Optional[PublicRouteData] = None,
     ) -> Layer:
         hydra_oath_url = oauth.issuer_url if oauth else ""
-        ingress_url = ingress.url if ingress else ""
+        root_url = public_route.url if public_route else ""
         client_id = oauth.client_id if oauth else ""
         client_secret = oauth.client_secret if oauth else ""
 
@@ -123,7 +91,7 @@ class PebbleService:
                 "SAML_PROVIDER_HYDRA_CA_CERT_PATH": str(CONTAINER_CERTIFICATES_FILE),
                 "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
                 "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
-                "SAML_PROVIDER_BRIDGE_BASE_URL": ingress_url,
+                "SAML_PROVIDER_BRIDGE_BASE_URL": str(root_url),
                 "SAML_PROVIDER_OIDC_CLIENT_ID": client_id,
                 "SAML_PROVIDER_OIDC_CLIENT_SECRET": client_secret,
             },

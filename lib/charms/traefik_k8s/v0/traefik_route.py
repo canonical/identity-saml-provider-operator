@@ -104,7 +104,6 @@ class TraefikRouteCharm(CharmBase):
         )
 ```
 """
-
 import logging
 from typing import Optional
 
@@ -121,7 +120,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 6
+LIBPATCH = 3
 
 log = logging.getLogger(__name__)
 
@@ -223,7 +222,7 @@ class TraefikRouteProvider(Object):
         return self._stored.scheme or ""  # type: ignore
 
     @property
-    def relations(self) -> list:
+    def relations(self):
         """The list of Relation instances associated with this endpoint."""
         return list(self._charm.model.relations[self._relation_name])
 
@@ -251,18 +250,18 @@ class TraefikRouteProvider(Object):
             scheme = relation.data[relation.app].get("scheme", "")
             self._stored.scheme = scheme or self._stored.scheme  # pyright: ignore
 
-    def _on_relation_changed(self, event: RelationEvent) -> None:
+    def _on_relation_changed(self, event: RelationEvent):
         if self.is_ready(event.relation):
             # todo check data is valid here?
             self.update_traefik_address()
-            self.on.ready.emit(relation=event.relation, app=event.relation.app)
+            self.on.ready.emit(event.relation)
 
-    def _on_relation_broken(self, event: RelationEvent) -> None:
-        self.on.data_removed.emit(relation=event.relation, app=event.relation.app)
+    def _on_relation_broken(self, event: RelationEvent):
+        self.on.data_removed.emit(event.relation)
 
     def update_traefik_address(
         self, *, external_host: Optional[str] = None, scheme: Optional[str] = None
-    ) -> None:
+    ):
         """Ensure that requirers know the external host for Traefik."""
         if not self._charm.unit.is_leader():
             return
@@ -342,14 +341,6 @@ class TraefikRouteRequirer(Object):
         relation_name: str = "traefik-route",
         raw: Optional[bool] = False,
     ):
-        """Initialize the traefik-route requirer class.
-
-        Args:
-            charm: Requirer charm.
-            relation: traefik-route relation.
-            relation_name: Name of the relation. Defaults to "traefik-route".
-            raw: Whether or not to enable raw mode. Defaults to False.
-        """
         super(TraefikRouteRequirer, self).__init__(charm, relation_name)
         self._stored.set_default(external_host=None, scheme=None)
 
@@ -360,8 +351,7 @@ class TraefikRouteRequirer(Object):
         if self._raw:
             log.warning(
                 "Raw mode enabled: TLS routes for ALL protocols will not be auto-generated. "
-                "Enable this only if you fully understand and intend to bypass the additional"
-                "TLS configuration."
+                "Enable this only if you fully understand and intend to bypass the additional TLS configuration."
             )
 
         self.framework.observe(
@@ -392,6 +382,9 @@ class TraefikRouteRequirer(Object):
         allows for reuse both when the property is called and if the relation changes, so a
         leader change where the new leader checks the property will do the right thing.
         """
+        if not self._charm.unit.is_leader():
+            return
+
         if self._relation:
             for relation in self._charm.model.relations[self._relation.name]:
                 if not relation.app:
@@ -409,19 +402,19 @@ class TraefikRouteRequirer(Object):
         """Update StoredState with external_host and other information from Traefik."""
         self._update_stored()
         if self._charm.unit.is_leader():
-            self.on.ready.emit(relation=event.relation, app=event.relation.app)
+            self.on.ready.emit(event.relation)
 
     def _on_relation_broken(self, event: RelationEvent) -> None:
         """On RelationBroken, clear the stored data if set and emit an event."""
         self._stored.external_host = ""
         if self._charm.unit.is_leader():
-            self.on.ready.emit(relation=event.relation, app=event.relation.app)
+            self.on.ready.emit(event.relation)
 
     def is_ready(self) -> bool:
         """Is the TraefikRouteRequirer ready to submit data to Traefik?"""
         return self._relation is not None
 
-    def submit_to_traefik(self, config: dict, static: Optional[dict] = None) -> None:
+    def submit_to_traefik(self, config: dict, static: Optional[dict] = None):
         """Submit an ingress configuration to Traefik.
 
         This method publishes dynamic and static configuration data to the

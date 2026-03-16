@@ -12,16 +12,12 @@ OAUTH = "oauth"
 OAUTH_SCOPES = "openid email profile"
 OAUTH_GRANT_TYPES = ["authorization_code", "refresh_token"]
 DATABASE_NAME = "saml_provider"
-LOCAL_CERTIFICATES_PATH = Path("/tmp")
-LOCAL_CERTIFICATES_FILE = Path(LOCAL_CERTIFICATES_PATH / "ca-certificates.crt")
-LOCAL_CHARM_CERTIFICATES_PATH = Path("/tmp/charm")
-LOCAL_CHARM_CERTIFICATES_FILE = Path(LOCAL_CHARM_CERTIFICATES_PATH / "charm-certificates.crt")
+
 
 # Bridge certificate (used by the workload service)
-LOCAL_BRIDGE_CERT_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.crt"
-LOCAL_BRIDGE_KEY_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.key"
 CONTAINER_BRIDGE_CERT = Path("/root/.local/certs/bridge.crt")
 CONTAINER_BRIDGE_KEY = Path("/root/.local/certs/bridge.key")
+
 
 # Application constants
 APPLICATION_PORT = 8082
@@ -34,7 +30,8 @@ CONTAINER_CERTIFICATES_FILE = Path(CONTAINER_CERTIFICATES_PATH / "ca-certificate
 # Integration constants
 PEER_INTEGRATION_NAME = "peer"
 HYDRA_INTEGRATION_NAME = "oauth"
-INGRESS_INTEGRATION_NAME = "ingress"
 PUBLIC_ROUTE_INTEGRATION_NAME = "public-route"
 DATABASE_INTEGRATION_NAME = "database"
+CERTIFICATES_INTEGRATION_NAME = "certificates"
 CERTIFICATE_TRANSFER_INTEGRATION_NAME = "receive-ca-cert"
+HYDRA_TOKEN_HOOK_INTEGRATION_NAME = "hydra-token-hook"
