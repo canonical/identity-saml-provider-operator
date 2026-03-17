@@ -34,6 +34,7 @@ from constants import (
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
     CONTAINER_CERTIFICATES_FILE,
+    LOCAL_CERTIFICATES_FILE,
     LOCAL_CERTIFICATES_PATH,
     LOCAL_CHARM_CERTIFICATES_FILE,
     LOCAL_CHARM_CERTIFICATES_PATH,
@@ -310,7 +311,7 @@ class CertificatesIntegration:
 
     def _push_certificates(self) -> None:
         self._container.push(
-            CONTAINER_CERTIFICATES_FILE, LOCAL_CHARM_CERTIFICATES_FILE, make_dirs=True
+            CONTAINER_CERTIFICATES_FILE, LOCAL_CERTIFICATES_FILE, make_dirs=True
         )
         self._container.push(CONTAINER_BRIDGE_KEY, self._server_key, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_CERT, self._server_cert, make_dirs=True)
