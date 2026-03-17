@@ -290,18 +290,24 @@ class CertificatesIntegration:
         LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
         if certificates := self._ca_chain:
-            LOCAL_CHARM_CERTIFICATES_FILE.write_text(certificates)
+            ca_bundle = "\n".join(sorted(certificates))
+            LOCAL_CHARM_CERTIFICATES_FILE.write_text(ca_bundle)
         elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
             LOCAL_CHARM_CERTIFICATES_FILE.unlink()
 
-        subprocess.run([
-            "update-ca-certificates",
-            "--fresh",
-            "--etccertsdir",
-            LOCAL_CERTIFICATES_PATH,
-            "--localcertsdir",
-            LOCAL_CHARM_CERTIFICATES_PATH,
-        ])
+        logger.error("********** Updating CA certificates bundle with the provided CA chain.")
+
+        subprocess.run(
+            [
+                "update-ca-certificates",
+                "--fresh",
+                "--etccertsdir",
+                LOCAL_CERTIFICATES_PATH,
+                "--localcertsdir",
+                LOCAL_CHARM_CERTIFICATES_PATH,
+            ],
+            capture_output=True,
+        )
 
         self._push_certificates()
 
@@ -310,9 +316,8 @@ class CertificatesIntegration:
         return all((certs, private_key))
 
     def _push_certificates(self) -> None:
-        self._container.push(
-            CONTAINER_CERTIFICATES_FILE, LOCAL_CERTIFICATES_FILE, make_dirs=True
-        )
+        ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
+        self._container.push(CONTAINER_CERTIFICATES_FILE, ca_certs, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_KEY, self._server_key, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_CERT, self._server_cert, make_dirs=True)
 

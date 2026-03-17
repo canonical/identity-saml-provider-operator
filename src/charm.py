@@ -25,7 +25,6 @@ from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     ResourceRequirements,
     adjust_resource_requirements,
 )
-from charms.tls_certificates_interface.v4.tls_certificates import CertificateAvailableEvent
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 
 from ops import (
@@ -37,7 +36,6 @@ from ops import (
     RelationBrokenEvent,
     RelationEvent,
     RelationChangedEvent,
-    RelationJoinedEvent,
     StartEvent,
     UpdateStatusEvent,
 )
@@ -48,7 +46,6 @@ from ops.pebble import Error, Layer
 
 from constants import (
     APPLICATION_PORT,
-    CERTIFICATE_TRANSFER_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
     HYDRA_INTEGRATION_NAME,
@@ -61,7 +58,6 @@ from constants import (
 from exceptions import PebbleServiceError
 from integrations import (
     CertificatesIntegration,
-    CertificatesTransferIntegration,
     DatabaseConfig,
     PeerData,
     PublicRouteData,
@@ -123,17 +119,17 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         # Certificates integration
         self._certs_integration = CertificatesIntegration(self)
-        self.framework.observe(
-            self._certs_integration.cert_requirer.on.certificate_available,
-            self._on_cert_changed,
-        )
+        # self.framework.observe(
+        #     self._certs_integration.cert_requirer.on.certificate_available,
+        #     self._on_cert_changed,
+        # )
 
-        # Certificate transfer integration
-        self._certs_transfer_integration = CertificatesTransferIntegration(self)
-        self.framework.observe(
-            self.on[CERTIFICATE_TRANSFER_INTEGRATION_NAME].relation_joined,
-            self._on_certificates_transfer_relation_joined,
-        )
+        # # Certificate transfer integration
+        # self._certs_transfer_integration = CertificatesTransferIntegration(self)
+        # self.framework.observe(
+        #     self.on[CERTIFICATE_TRANSFER_INTEGRATION_NAME].relation_joined,
+        #     self._on_certificates_transfer_relation_joined,
+        # )
 
         # Lifecycle event handlers
         self.framework.observe(
@@ -275,24 +271,24 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         self._holistic_handler(event)
 
-    def _on_cert_changed(self, event: CertificateAvailableEvent) -> None:
-        if not self._workload_service.is_running:
-            event.defer()
-            return
+    # def _on_cert_changed(self, event: CertificateAvailableEvent) -> None:
+    #     if not self._workload_service.is_running:
+    #         event.defer()
+    #         return
 
-        self._holistic_handler(event)
-        self._certs_transfer_integration.transfer_certificates(
-            self._certs_integration.cert_data,
-        )
+    #     self._holistic_handler(event)
+    #     self._certs_transfer_integration.transfer_certificates(
+    #         self._certs_integration.cert_data,
+    #     )
 
-    def _on_certificates_transfer_relation_joined(self, event: RelationJoinedEvent) -> None:
-        if not self._certs_integration.tls_enabled:
-            event.defer()
-            return
+    # def _on_certificates_transfer_relation_joined(self, event: RelationJoinedEvent) -> None:
+    #     if not self._certs_integration.tls_enabled:
+    #         event.defer()
+    #         return
 
-        self._certs_transfer_integration.transfer_certificates(
-            self._certs_integration.cert_data, event.relation.id
-        )
+    #     self._certs_transfer_integration.transfer_certificates(
+    #         self._certs_integration.cert_data, event.relation.id
+    #     )
 
     def _on_resource_patch_failed(self, event: K8sResourcePatchFailedEvent) -> None:
         logger.error("Failed to patch resource constraints: %s", event.message)
