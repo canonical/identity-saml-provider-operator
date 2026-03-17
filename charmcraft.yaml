@@ -30,8 +30,6 @@ resources:
 charm-libs:
   - lib: hydra.oauth
     version: "0.11"  # Must be a string, not a number.
-  - lib: hydra.hydra_token_hook
-    version: "0.1"  # Must be a string, not a number.
   - lib: traefik_k8s.traefik_route
     version: "0.3"  # Must be a string, not a number.
   - lib: data_platform_libs.data_interfaces

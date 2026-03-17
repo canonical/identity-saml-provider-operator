@@ -5,6 +5,7 @@ from contextlib import suppress
 import json
 import logging
 from dataclasses import dataclass, field
+import subprocess
 from typing import Any, KeysView, Optional, Self, TypeAlias
 from urllib.parse import urlparse
 
@@ -15,7 +16,6 @@ from yarl import URL
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
     CertificateTransferProvides,
 )
-from charms.hydra.v0.hydra_token_hook import AuthIn, HydraHookProvider, ProviderData
 from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateRequestAttributes,
     Mode,
@@ -34,7 +34,9 @@ from constants import (
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
     CONTAINER_CERTIFICATES_FILE,
-    HYDRA_TOKEN_HOOK_INTEGRATION_NAME,
+    LOCAL_CERTIFICATES_PATH,
+    LOCAL_CHARM_CERTIFICATES_FILE,
+    LOCAL_CHARM_CERTIFICATES_PATH,
     PEER_INTEGRATION_NAME,
     PUBLIC_ROUTE_INTEGRATION_NAME,
 )
@@ -284,6 +286,22 @@ class CertificatesIntegration:
             self._remove_certificates()
             return
 
+        LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        if certificates := self._ca_chain:
+            LOCAL_CHARM_CERTIFICATES_FILE.write_text(certificates)
+        elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
+            LOCAL_CHARM_CERTIFICATES_FILE.unlink()
+
+        subprocess.run([
+            "update-ca-certificates",
+            "--fresh",
+            "--etccertsdir",
+            LOCAL_CERTIFICATES_PATH,
+            "--localcertsdir",
+            LOCAL_CHARM_CERTIFICATES_PATH,
+        ])
+
         self._push_certificates()
 
     def _certs_ready(self) -> bool:
@@ -291,7 +309,9 @@ class CertificatesIntegration:
         return all((certs, private_key))
 
     def _push_certificates(self) -> None:
-        self._container.push(CONTAINER_CERTIFICATES_FILE, self._ca_cert, make_dirs=True)
+        self._container.push(
+            CONTAINER_CERTIFICATES_FILE, LOCAL_CHARM_CERTIFICATES_FILE, make_dirs=True
+        )
         self._container.push(CONTAINER_BRIDGE_KEY, self._server_key, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_CERT, self._server_cert, make_dirs=True)
 
@@ -336,22 +356,3 @@ class CertificatesTransferIntegration:
                 certificate=data.cert,  # type: ignore[arg-type]
                 relation_id=relation.id,
             )
-
-
-class HydraHookIntegration:
-    def __init__(self, provider: HydraHookProvider) -> None:
-        self._provider = provider
-
-    def is_ready(self) -> bool:
-        rel = self._provider._charm.model.get_relation(HYDRA_TOKEN_HOOK_INTEGRATION_NAME)
-        return bool(rel and rel.active)
-
-    def update_relation_data(self, hook_url: str, api_token: str) -> None:
-        self._provider.update_relations_app_data(
-            ProviderData(
-                url=hook_url,
-                auth_config_name="Authorization",
-                auth_config_value=api_token,
-                auth_config_in=AuthIn.header,
-            )
-        )
