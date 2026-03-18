@@ -399,7 +399,7 @@ class IdentitySAMLProviderCharm(CharmBase):
 
     def _set_client_config(self):
         client_config = ClientConfig(
-            urljoin(self._external_url, "/saml/callback"),
+            urljoin(str(self._external_url), "/saml/callback"),
             OAUTH_SCOPES,
             OAUTH_GRANT_TYPES,
         )
