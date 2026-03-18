@@ -295,8 +295,6 @@ class CertificatesIntegration:
         elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
             LOCAL_CHARM_CERTIFICATES_FILE.unlink()
 
-        logger.error("********** Updating CA certificates bundle with the provided CA chain.")
-
         subprocess.run(
             [
                 "update-ca-certificates",

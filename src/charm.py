@@ -263,6 +263,8 @@ class IdentitySAMLProviderCharm(CharmBase):
             public_route_config = PublicRouteData.load(self.public_route).config
             self.public_route.submit_to_traefik(public_route_config)
 
+        self._holistic_handler(event)
+
     def _on_public_route_broken(self, event: RelationBrokenEvent) -> None:
         self.unit.status = MaintenanceStatus("Configuring resources")
 
