@@ -32,12 +32,14 @@ charm-libs:
     version: "0.11"  # Must be a string, not a number.
   - lib: traefik_k8s.traefik_route
     version: "0.3"  # Must be a string, not a number.
-  - lib: traefik_k8s.ingress
-    version: "2.15"  # Must be a string, not a number.
   - lib: data_platform_libs.data_interfaces
     version: "0.58"  # Must be a string, not a number.
   - lib: certificate_transfer_interface.certificate_transfer
     version: "1.15"  # Must be a string, not a number.
+  - lib: tls_certificates_interface.tls_certificates
+    version: "4.20"  # Must be a string, not a number. 
+  - lib: observability_libs.kubernetes_compute_resources_patch
+    version: "0.9"  # Must be a string, not a number. 
 
 requires:
   oauth:
@@ -51,10 +53,8 @@ requires:
     interface: postgresql_client
     limit: 1
     optional: false
-  ingress:
-    interface: ingress
-    limit: 1
-    optional: false
+  public-route:
+    interface: traefik_route
   receive-ca-cert:
     interface: certificate_transfer
     description: |
@@ -89,6 +89,14 @@ config:
 parts:
   charm:
     plugin: charm
-
+    charm-binary-python-packages:
+      - jsonschema ~= 4.23
+      - lightkube
+      - cryptography
+      - "setuptools>=70.0.0"
+    build-packages:
+      - "rustc-1.85"
+      - "cargo-1.85"
+      
 platforms:
   ubuntu@24.04:amd64:

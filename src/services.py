@@ -11,17 +11,17 @@ from ops.pebble import Layer, LayerDict
 from constants import (
     APPLICATION_PORT,
     CONTAINER_CERTIFICATES_FILE,
-    LOCAL_CERTIFICATES_FILE,
-    LOCAL_BRIDGE_CERT_FILE,
-    LOCAL_BRIDGE_KEY_FILE,
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
     WORKLOAD_CONTAINER,
     WORKLOAD_RUN_COMMAND,
     WORKLOAD_SERVICE,
+    LOCAL_CERTIFICATES_FILE,
+    LOCAL_BRIDGE_CERT_FILE,
+    LOCAL_BRIDGE_KEY_FILE,
 )
 from exceptions import PebbleServiceError
-from integrations import DatabaseConfig, IngressIntegration
+from integrations import DatabaseConfig, PublicRouteData
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +100,10 @@ class PebbleService:
         self,
         oauth: Optional[OauthProviderConfig] = None,
         database: Optional[DatabaseConfig] = None,
-        ingress: Optional[IngressIntegration] = None,
+        public_route: Optional[PublicRouteData] = None,
     ) -> Layer:
         hydra_oath_url = oauth.issuer_url if oauth else ""
-        ingress_url = ingress.url if ingress else ""
+        root_url = public_route.url if public_route else ""
         client_id = oauth.client_id if oauth else ""
         client_secret = oauth.client_secret if oauth else ""
 
@@ -123,7 +123,7 @@ class PebbleService:
                 "SAML_PROVIDER_HYDRA_CA_CERT_PATH": str(CONTAINER_CERTIFICATES_FILE),
                 "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
                 "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
-                "SAML_PROVIDER_BRIDGE_BASE_URL": ingress_url,
+                "SAML_PROVIDER_BRIDGE_BASE_URL": str(root_url),
                 "SAML_PROVIDER_OIDC_CLIENT_ID": client_id,
                 "SAML_PROVIDER_OIDC_CLIENT_SECRET": client_secret,
             },

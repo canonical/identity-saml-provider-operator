@@ -3,24 +3,25 @@
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, KeysView, Self, TypeAlias
 from urllib.parse import urlparse
 
-from charms.certificate_transfer_interface.v1.certificate_transfer import (
-    CertificateTransferRequires,
-)
+from jinja2 import Template
+from yarl import URL
+
+from charms.certificate_transfer_interface.v1.certificate_transfer import CertificateTransferRequires
 from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
-from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops import Model
 
+from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from configs import ServiceConfigs
 from constants import (
     APPLICATION_PORT,
     CERTIFICATE_TRANSFER_INTEGRATION_NAME,
     PEER_INTEGRATION_NAME,
+    PUBLIC_ROUTE_INTEGRATION_NAME,
 )
-from env_vars import EnvVars
 
 logger = logging.getLogger(__name__)
 JsonSerializable: TypeAlias = dict[str, Any] | list[Any] | int | str | float | bool | None
@@ -98,28 +99,67 @@ class DatabaseConfig:
         )
 
 
-class IngressIntegration:
-    def __init__(self, requirer: IngressPerAppRequirer) -> None:
-        self.ingress_requirer = requirer
-        self._charm = requirer.charm
+@dataclass(frozen=True, slots=True)
+class PublicRouteData:
+    """The data source from the public-route integration."""
+
+    url: URL = URL()
+    config: dict = field(default_factory=dict)
+
+    def is_ready(self) -> bool:
+        return bool(self.url)
+
+    @classmethod
+    def _external_host(cls, requirer: TraefikRouteRequirer) -> str:
+        if not (relation := requirer._charm.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME)):
+            return
+        if not relation.app:
+            return
+        return relation.data[relation.app].get("external_host", "")
+
+    @classmethod
+    def _scheme(cls, requirer: TraefikRouteRequirer) -> str:
+        if not (relation := requirer._charm.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME)):
+            return
+        if not relation.app:
+            return
+        return relation.data[relation.app].get("scheme", "")
+
+    @classmethod
+    def load(cls, requirer: TraefikRouteRequirer) -> "PublicRouteData":
+        model, app = requirer._charm.model.name, requirer._charm.app.name
+        external_host = cls._external_host(requirer)
+
+        if not external_host:
+            logger.error("External hostname is not set on the ingress provider")
+            return cls()
+
+        scheme = cls._scheme(requirer)
+        external_endpoint = f"{scheme}://{external_host}"
+
+        # template could have use PathPrefixRegexp but going for a simple one right now
+        with open("templates/public-route.json.j2", "r") as file:
+            template = Template(file.read())
+
+        ingress_config = json.loads(
+            template.render(
+                model=model,
+                app=app,
+                public_port=APPLICATION_PORT,
+                external_host=external_host,
+            )
+        )
+
+        return cls(
+            url=URL(external_endpoint),
+            config=ingress_config,
+        )
 
     @property
-    def url(self) -> str:
-        return self.ingress_requirer.url if self.ingress_requirer.is_ready() else ""
+    def secured(self) -> bool:
+        return self.url.scheme == "https"
 
     def to_service_configs(self) -> ServiceConfigs:
-        hostnames = [f"{self._charm.app.name}.{self._charm.model.name}.svc.cluster.local"]
-
-        if url := self.url:
-            parsed_url = urlparse(url)
-            if hostname := parsed_url.hostname:
-                hostnames.append(hostname)
-
-        return {
-            "hostnames": hostnames,
-        }
-
-    def to_env_vars(self) -> EnvVars:
         if not (url := self.url):
             return {
                 "APPLICATION_ROOT_URL": (
@@ -132,6 +172,174 @@ class IngressIntegration:
         return {
             "APPLICATION_ROOT_URL": f"{parsed_url.scheme}://{parsed_url.netloc}",
         }
+
+
+# @dataclass
+# class CertificateData:
+#     ca_cert: Optional[str] = None
+#     ca_chain: Optional[list[str]] = None
+#     cert: Optional[str] = None
+
+
+# class CertificatesIntegration:
+#     def __init__(self, charm: CharmBase) -> None:
+#         self._charm = charm
+#         self._container = charm._container
+
+#         k8s_svc_host = f"{charm.app.name}.{charm.model.name}.svc.cluster.local"
+#         self.csr_attributes = CertificateRequestAttributes(
+#             common_name=k8s_svc_host,
+#             sans_dns=frozenset((k8s_svc_host,)),
+#             sans_ip=frozenset((
+#                 "127.0.0.1",
+#                 "0.0.0.0",
+#             )),
+#         )
+#         self.cert_requirer = TLSCertificatesRequiresV4(
+#             charm,
+#             relationship_name=CERTIFICATES_INTEGRATION_NAME,
+#             certificate_requests=[self.csr_attributes],
+#             mode=Mode.UNIT,
+#         )
+
+#     def to_env_vars(self) -> EnvVars:
+#         if not self.tls_enabled:
+#             return {}
+
+#         return {
+#             "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
+#             "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
+#         }
+
+#     @property
+#     def tls_enabled(self) -> bool:
+#         if not self._container.can_connect():
+#             return False
+
+#         return (
+#             self._container.exists(CONTAINER_BRIDGE_KEY)
+#             and self._container.exists(CONTAINER_BRIDGE_CERT)
+#             and self._container.exists(CONTAINER_CERTIFICATES_FILE)
+#         )
+
+#     @property
+#     def uri_scheme(self) -> str:
+#         return "https" if self.tls_enabled else "http"
+
+#     @property
+#     def _ca_cert(self) -> Optional[str]:
+#         return str(self._certs.ca) if self._certs else None
+
+#     @property
+#     def _server_key(self) -> Optional[str]:
+#         private_key = self.cert_requirer.private_key
+#         return str(private_key) if private_key else None
+
+#     @property
+#     def _server_cert(self) -> Optional[str]:
+#         return str(self._certs.certificate) if self._certs else None
+
+#     @property
+#     def _ca_chain(self) -> Optional[list[str]]:
+#         return [str(chain) for chain in self._certs.chain] if self._certs else None
+
+#     @property
+#     def _certs(self) -> Optional[ProviderCertificate]:
+#         cert, *_ = self.cert_requirer.get_assigned_certificate(self.csr_attributes)
+#         return cert
+
+#     @property
+#     def cert_data(self) -> CertificateData:
+#         return CertificateData(
+#             ca_cert=self._ca_cert,
+#             ca_chain=self._ca_chain,
+#             cert=self._server_cert,
+#         )
+
+#     def update_certificates(self) -> None:
+#         if not self._charm.model.get_relation(CERTIFICATES_INTEGRATION_NAME):
+#             logger.info("The certificates integration is not ready.")
+#             self._remove_certificates()
+#             return
+
+#         if not self._certs_ready():
+#             logger.info("The certificates data is not ready.")
+#             self._remove_certificates()
+#             return
+
+#         LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+#         if certificates := self._ca_chain:
+#             ca_bundle = "\n".join(sorted(certificates))
+#             LOCAL_CHARM_CERTIFICATES_FILE.write_text(ca_bundle)
+#         elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
+#             LOCAL_CHARM_CERTIFICATES_FILE.unlink()
+
+#         subprocess.run(
+#             [
+#                 "update-ca-certificates",
+#                 "--fresh",
+#                 "--etccertsdir",
+#                 LOCAL_CERTIFICATES_PATH,
+#                 "--localcertsdir",
+#                 LOCAL_CHARM_CERTIFICATES_PATH,
+#             ],
+#             capture_output=True,
+#         )
+
+#         self._push_certificates()
+
+#     def _certs_ready(self) -> bool:
+#         certs, private_key = self.cert_requirer.get_assigned_certificate(self.csr_attributes)
+#         return all((certs, private_key))
+
+#     def _push_certificates(self) -> None:
+#         ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
+#         self._container.push(CONTAINER_CERTIFICATES_FILE, ca_certs, make_dirs=True)
+#         self._container.push(CONTAINER_BRIDGE_KEY, self._server_key, make_dirs=True)
+#         self._container.push(CONTAINER_BRIDGE_CERT, self._server_cert, make_dirs=True)
+
+#     def _remove_certificates(self) -> None:
+#         for file in (
+#             CONTAINER_CERTIFICATES_FILE,
+#             CONTAINER_BRIDGE_KEY,
+#             CONTAINER_BRIDGE_CERT,
+#         ):
+#             with suppress(PathError):
+#                 self._container.remove_path(file)
+
+
+# class CertificatesTransferIntegration:
+#     def __init__(self, charm: CharmBase):
+#         self._charm = charm
+#         self._certs_transfer_provider = CertificateTransferProvides(
+#             charm, relationship_name=CERTIFICATE_TRANSFER_INTEGRATION_NAME
+#         )
+
+#     def transfer_certificates(
+#         self, /, data: CertificateData, relation_id: Optional[int] = None
+#     ) -> None:
+#         if not (
+#             relations := self._charm.model.relations.get(CERTIFICATE_TRANSFER_INTEGRATION_NAME)
+#         ):
+#             return
+
+#         if relation_id is not None:
+#             relations = [relation for relation in relations if relation.id == relation_id]
+
+#         ca_cert, ca_chain, certificate = data.ca_cert, data.ca_chain, data.cert
+#         if not all((ca_cert, ca_chain, certificate)):
+#             for relation in relations:
+#                 self._certs_transfer_provider.remove_certificate(relation_id=relation.id)
+#             return
+
+#         for relation in relations:
+#             self._certs_transfer_provider.set_certificate(
+#                 ca=data.ca_cert,  # type: ignore[arg-type]
+#                 chain=data.ca_chain,  # type: ignore[arg-type]
+#                 certificate=data.cert,  # type: ignore[arg-type]
+#                 relation_id=relation.id,
+#             )
 
 
 @dataclass(frozen=True)
