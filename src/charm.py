@@ -154,7 +154,7 @@ class IdentitySAMLProviderCharm(CharmBase):
         oauth_client_config = ClientConfig(
             # service is not using /saml prefix with hydra yet
             # redirect_uri=urljoin(str(self._external_url), "/saml/callback")
-            redirect_uri=urljoin(str(self._external_url), "/callback"),
+            redirect_uri=urljoin(self._external_url, "/callback"),
             grant_types=OAUTH_GRANT_TYPES,
             scope=OAUTH_SCOPES,
         )
@@ -181,17 +181,17 @@ class IdentitySAMLProviderCharm(CharmBase):
     @property
     def _external_url(self) -> str:
         if url := PublicRouteData.load(self.public_route).url:
-            return url
+            return str(url)
         return f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}"
 
     @property
     def _pebble_layer(self) -> Layer:
         oauth_info = self.oauth.get_provider_info()
         database_config = DatabaseConfig.load(self.database_requirer)
-        public_route_config = PublicRouteData.load(self.public_route)
+        public_route_url = self._external_url
 
         return self._pebble_service.render_pebble_layer(
-            oauth_info, database_config, public_route_config
+            oauth_info, database_config, public_route_url
         )
 
     def _on_identity_saml_provider_pebble_ready(self, event: PebbleReadyEvent) -> None:
@@ -262,12 +262,16 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         if self.unit.is_leader():
             public_route_config = PublicRouteData.load(self.public_route).config
-            self.public_route.submit_to_traefik(public_route_config)
+            if public_route_config:
+                self.public_route.submit_to_traefik(public_route_config)
 
         self._holistic_handler(event)
 
     def _on_public_route_broken(self, event: RelationBrokenEvent) -> None:
         self.unit.status = MaintenanceStatus("Configuring resources")
+
+        if self.unit.is_leader():
+            logger.info("This app no longer has public-route")
 
         # needed due to how traefik_route lib is handling the event
         self.public_route._relation = event.relation
@@ -308,9 +312,10 @@ class IdentitySAMLProviderCharm(CharmBase):
             event.defer()
             return
 
-        if not PublicRouteData.load(self.public_route).url:
-            self.unit.status = WaitingStatus("Waiting for public-route URL")
-            return
+        if self.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME):
+            if not PublicRouteData.load(self.public_route).is_ready():
+                self.unit.status = WaitingStatus("Waiting for public ingress")
+                return
 
         try:
             self._certs_integration.update_certificates()
