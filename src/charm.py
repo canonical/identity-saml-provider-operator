@@ -165,7 +165,7 @@ class IdentitySAMLProviderCharm(CharmBase):
         # Oauth integration
         oauth_client_config = ClientConfig(
             # adding /saml/ to the callback url as it is commanded by the traefik route
-            redirect_uri=urljoin(str(self._external_url), "/saml/callback"),
+            redirect_uri=urljoin(str(self._external_url), "/callback"),
             grant_types=OAUTH_GRANT_TYPES,
             scope=OAUTH_SCOPES,
         )
