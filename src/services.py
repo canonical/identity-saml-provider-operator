@@ -13,6 +13,7 @@ from constants import (
     CONTAINER_CERTIFICATES_FILE,
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
+    HYDRA_REDIRECT_PATH,
     WORKLOAD_CONTAINER,
     WORKLOAD_RUN_COMMAND,
     WORKLOAD_SERVICE,
@@ -114,6 +115,7 @@ class PebbleService:
             "startup": "disabled",
             "environment": {
                 "SAML_PROVIDER_HYDRA_PUBLIC_URL": hydra_oath_url,
+                "SAML_PROVIDER_HYDRA_REDIRECT_PATH": HYDRA_REDIRECT_PATH,
                 "SAML_PROVIDER_BRIDGE_BASE_PORT": str(APPLICATION_PORT),
                 "SAML_PROVIDER_DB_HOST": database.host if database else "",
                 "SAML_PROVIDER_DB_PORT": str(database.port) if database else "",

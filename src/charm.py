@@ -56,6 +56,7 @@ from constants import (
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
     HYDRA_INTEGRATION_NAME,
+    HYDRA_REDIRECT_PATH,
     PUBLIC_ROUTE_INTEGRATION_NAME,
     OAUTH_GRANT_TYPES,
     OAUTH_SCOPES,
@@ -164,8 +165,7 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         # Oauth integration
         oauth_client_config = ClientConfig(
-            # adding /saml/ to the callback url as it is commanded by the traefik route
-            redirect_uri=urljoin(str(self._external_url), "/callback"),
+            redirect_uri=urljoin(self._external_url, HYDRA_REDIRECT_PATH),
             grant_types=OAUTH_GRANT_TYPES,
             scope=OAUTH_SCOPES,
         )
