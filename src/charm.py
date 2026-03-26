@@ -56,7 +56,7 @@ from constants import (
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
     HYDRA_INTEGRATION_NAME,
-    HYDRA_REDIRECT_PATH,
+    REDIRECT_URL,
     PUBLIC_ROUTE_INTEGRATION_NAME,
     OAUTH_GRANT_TYPES,
     OAUTH_SCOPES,
@@ -165,7 +165,7 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         # Oauth integration
         oauth_client_config = ClientConfig(
-            redirect_uri=urljoin(self._external_url, HYDRA_REDIRECT_PATH),
+            redirect_uri=urljoin(self._external_url, REDIRECT_URL),
             grant_types=OAUTH_GRANT_TYPES,
             scope=OAUTH_SCOPES,
         )
@@ -192,7 +192,7 @@ class IdentitySAMLProviderCharm(CharmBase):
     @property
     def _external_url(self) -> str:
         if url := PublicRouteData.load(self.public_route).url:
-            return url
+            return str(url)
         return f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}"
 
     @property
@@ -399,7 +399,7 @@ class IdentitySAMLProviderCharm(CharmBase):
 
     def _set_client_config(self):
         client_config = ClientConfig(
-            urljoin(str(self._external_url), "/saml/callback"),
+            urljoin(self._external_url, REDIRECT_URL),
             OAUTH_SCOPES,
             OAUTH_GRANT_TYPES,
         )

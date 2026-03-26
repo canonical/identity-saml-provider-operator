@@ -30,7 +30,7 @@ ORY_KRATOS_HTTP_PORT = 8081
 WORKLOAD_RUN_COMMAND = f"/usr/bin/{WORKLOAD_SERVICE}"
 CONTAINER_CERTIFICATES_PATH = Path("/etc/ssl/certs/")
 CONTAINER_CERTIFICATES_FILE = Path(CONTAINER_CERTIFICATES_PATH / "ca-certificates.crt")
-HYDRA_REDIRECT_PATH = "/saml/callback"
+REDIRECT_URL = "/saml/callback"
 
 # Integration constants
 PEER_INTEGRATION_NAME = "peer"
