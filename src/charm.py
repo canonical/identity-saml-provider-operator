@@ -25,21 +25,27 @@ from charms.hydra.v0.oauth import (
     OAuthInfoRemovedEvent,
     OAuthRequirer,
 )
-from charms.traefik_k8s.v2.ingress import (
-    IngressPerAppReadyEvent,
-    IngressPerAppRequirer,
-    IngressPerAppRevokedEvent,
+from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
+    K8sResourcePatchFailedEvent,
+    KubernetesComputeResourcesPatch,
+    ResourceRequirements,
+    adjust_resource_requirements,
 )
+from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
+
 from ops import (
     ConfigChangedEvent,
     HookEvent,
     LeaderElectedEvent,
+    MaintenanceStatus,
     PebbleReadyEvent,
     RelationBrokenEvent,
+    RelationEvent,
+    RelationChangedEvent,
     StartEvent,
     UpdateStatusEvent,
 )
-from ops.charm import CharmBase, RelationChangedEvent
+from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
 from ops.pebble import Layer
@@ -50,22 +56,23 @@ from constants import (
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
     HYDRA_INTEGRATION_NAME,
-    INGRESS_INTEGRATION_NAME,
+    REDIRECT_URL,
+    PUBLIC_ROUTE_INTEGRATION_NAME,
+    OAUTH_GRANT_TYPES,
+    OAUTH_SCOPES,
+    PEER_INTEGRATION_NAME,
+    WORKLOAD_CONTAINER,
     LOCAL_CERTIFICATES_PATH,
     LOCAL_CHARM_CERTIFICATES_FILE,
     LOCAL_CHARM_CERTIFICATES_PATH,
     LOCAL_BRIDGE_CERT_FILE,
     LOCAL_BRIDGE_KEY_FILE,
-    OAUTH_GRANT_TYPES,
-    OAUTH_SCOPES,
-    PEER_INTEGRATION_NAME,
-    WORKLOAD_CONTAINER,
 )
 from exceptions import PebbleServiceError
 from integrations import (
     DatabaseConfig,
-    IngressIntegration,
     PeerData,
+    PublicRouteData,
     TLSCertificates,
 )
 from services import PebbleService, WorkloadService
@@ -103,21 +110,24 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_database_relation_broken,
         )
 
-        # Ingress integration
-        self.ingress_requirer = IngressPerAppRequirer(
+        # public route via raw traefik routing configuration
+        self.public_route = TraefikRouteRequirer(
             self,
-            relation_name=INGRESS_INTEGRATION_NAME,
-            port=APPLICATION_PORT,
-            strip_prefix=True,
-        )
-        self.ingress_integration = IngressIntegration(self.ingress_requirer)
-        self.framework.observe(
-            self.ingress_requirer.on.ready,
-            self._on_ingress_ready,
+            self.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME),
+            PUBLIC_ROUTE_INTEGRATION_NAME,
+            raw=True,
         )
         self.framework.observe(
-            self.ingress_requirer.on.revoked,
-            self._on_ingress_revoked,
+            self.on[PUBLIC_ROUTE_INTEGRATION_NAME].relation_joined,
+            self._on_public_route_changed,
+        )
+        self.framework.observe(
+            self.on[PUBLIC_ROUTE_INTEGRATION_NAME].relation_changed,
+            self._on_public_route_changed,
+        )
+        self.framework.observe(
+            self.on[PUBLIC_ROUTE_INTEGRATION_NAME].relation_broken,
+            self._on_public_route_broken,
         )
 
         # Certificate transfer integration
@@ -155,7 +165,7 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         # Oauth integration
         oauth_client_config = ClientConfig(
-            redirect_uri=self._external_url + "/callback",
+            redirect_uri=urljoin(self._external_url, REDIRECT_URL),
             grant_types=OAUTH_GRANT_TYPES,
             scope=OAUTH_SCOPES,
         )
@@ -169,19 +179,30 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_oauth_info_changed,
         )
 
+        # Resources patching
+        self.resources_patch = KubernetesComputeResourcesPatch(
+            self,
+            WORKLOAD_CONTAINER,
+            resource_reqs_func=self._resource_reqs_from_config,
+        )
+        self.framework.observe(
+            self.resources_patch.on.patch_failed, self._on_resource_patch_failed
+        )
+
     @property
     def _external_url(self) -> str:
-        if self.ingress_requirer.url:
-            return self.ingress_requirer.url
+        if url := PublicRouteData.load(self.public_route).url:
+            return str(url)
         return f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}"
 
     @property
     def _pebble_layer(self) -> Layer:
         oauth_info = self.oauth.get_provider_info()
         database_config = DatabaseConfig.load(self.database_requirer)
+        public_route_config = PublicRouteData.load(self.public_route)
 
         return self._pebble_service.render_pebble_layer(
-            oauth_info, database_config, self.ingress_integration
+            oauth_info, database_config, public_route_config
         )
 
     def _on_identity_saml_provider_pebble_ready(self, event: PebbleReadyEvent) -> None:
@@ -233,11 +254,37 @@ class IdentitySAMLProviderCharm(CharmBase):
     def _on_database_relation_broken(self, event: RelationBrokenEvent) -> None:
         self._holistic_handler(event)
 
-    def _on_ingress_ready(self, event: IngressPerAppReadyEvent) -> None:
+    def _on_public_route_changed(self, event: RelationEvent) -> None:
+        self.unit.status = MaintenanceStatus("Configuring resources")
+
+        # needed due to how traefik_route lib is handling the event
+        self.public_route._relation = event.relation
+
+        if not self.public_route.is_ready():
+            return
+
+        if event.relation.app is None:
+            # We need to defer the event as this is not handled in the holistic handler
+            # TODO(nsklikas): move this to the holistic handler and remove defer
+            # TODO 2(nsklikas): Fix this in traefik_route lib, this is a bug and the lib should handle
+            # this in the `is_ready` method, like it does for the Provider side.
+            event.defer()
+            return
+
+        if self.unit.is_leader():
+            public_route_config = PublicRouteData.load(self.public_route).config
+            self.public_route.submit_to_traefik(public_route_config)
+
         self._set_client_config()
+
         self._holistic_handler(event)
 
-    def _on_ingress_revoked(self, event: IngressPerAppRevokedEvent) -> None:
+    def _on_public_route_broken(self, event: RelationBrokenEvent) -> None:
+        self.unit.status = MaintenanceStatus("Configuring resources")
+
+        # needed due to how traefik_route lib is handling the event
+        self.public_route._relation = event.relation
+
         self._holistic_handler(event)
 
     def _ensure_tls(self) -> None:
@@ -306,14 +353,23 @@ class IdentitySAMLProviderCharm(CharmBase):
     def _on_certificate_transfer_changed(self, event: ops.EventBase) -> None:
         self._holistic_handler(event)
 
+    def _on_resource_patch_failed(self, event: K8sResourcePatchFailedEvent) -> None:
+        logger.error("Failed to patch resource constraints: %s", event.message)
+        self.unit.status = BlockedStatus(event.message)
+
+    def _resource_reqs_from_config(self) -> ResourceRequirements:
+        limits = {"cpu": self.model.config.get("cpu"), "memory": self.model.config.get("memory")}
+        requests = {"cpu": "100m", "memory": "200Mi"}
+        return adjust_resource_requirements(limits, requests, adhere_to_requests=True)
+
     def _holistic_handler(self, event: HookEvent) -> None:
         if not container_connectivity(self):
             self.unit.status = WaitingStatus("Container is not connected yet")
             event.defer()
             return
 
-        if not self.ingress_requirer.url:
-            self.unit.status = WaitingStatus("Waiting for ingress URL")
+        if not PublicRouteData.load(self.public_route).url:
+            self.unit.status = WaitingStatus("Waiting for public-route URL")
             return
 
         if not self.oauth.is_client_created():
@@ -343,7 +399,7 @@ class IdentitySAMLProviderCharm(CharmBase):
 
     def _set_client_config(self):
         client_config = ClientConfig(
-            urljoin(self._external_url, "/callback"),
+            urljoin(self._external_url, REDIRECT_URL),
             OAUTH_SCOPES,
             OAUTH_GRANT_TYPES,
         )
