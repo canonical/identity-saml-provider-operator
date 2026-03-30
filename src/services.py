@@ -105,10 +105,10 @@ class PebbleService:
         public_route: Optional[PublicRouteData] = None,
     ) -> Layer:
         hydra_oath_url = oauth.issuer_url if oauth else ""
-        exernal_url = public_route.url if public_route else ""
+        external_url = str(public_route.url) if public_route else ""
         client_id = oauth.client_id if oauth else ""
         client_secret = oauth.client_secret if oauth else ""
-        redirect_url = urljoin(exernal_url, REDIRECT_URL) if exernal_url else ""
+        redirect_url = urljoin(external_url, REDIRECT_URL) if external_url else ""
 
         container = {
             "override": "replace",
@@ -126,7 +126,7 @@ class PebbleService:
                 "SAML_PROVIDER_HYDRA_CA_CERT_PATH": str(CONTAINER_CERTIFICATES_FILE),
                 "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
                 "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
-                "SAML_PROVIDER_BRIDGE_BASE_URL": str(exernal_url),
+                "SAML_PROVIDER_BRIDGE_BASE_URL": str(external_url),
                 "SAML_PROVIDER_OIDC_CLIENT_ID": client_id,
                 "SAML_PROVIDER_OIDC_CLIENT_SECRET": client_secret,
                 "SAML_PROVIDER_OIDC_REDIRECT_URL": redirect_url,

@@ -2,23 +2,12 @@
 {% set public_svc = "http://{}.{}.svc.cluster.local:{}".format(app, model, public_port) %}
 {
     "http":{
-        "middlewares":{
-            "juju-sidecar-strip-saml-path-{{ identifier }}":{
-                "stripPrefix":{
-                    "prefixes": ["/saml"],
-                    "forceSlash": false
-                }
-            }
-        },
         "routers":{
             "juju-{{ identifier }}-public-api-router-saml-oidc-callback":{
                 "entryPoints":[
                     "web"
                 ],
                 "rule":"Path(`/saml/callback`)",
-                "middlewares":[
-                    "juju-sidecar-strip-saml-path-{{ identifier }}"
-                ],
                 "service":"juju-{{ identifier }}-public-api-service"
             },
             "juju-{{ identifier }}-public-api-router-saml-oidc-callback-tls":{
@@ -26,9 +15,6 @@
                     "websecure"
                 ],
                 "rule":"Path(`/saml/callback`)",
-                "middlewares":[
-                    "juju-sidecar-strip-saml-path-{{ identifier }}"
-                ],
                 "service":"juju-{{ identifier }}-public-api-service",
                 "tls":{
                     "domains":[
