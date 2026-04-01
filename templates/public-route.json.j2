@@ -3,30 +3,6 @@
 {
     "http":{
         "routers":{
-            "juju-{{ identifier }}-public-api-router-saml-oidc-callback":{
-                "entryPoints":[
-                    "web"
-                ],
-                "rule":"Path(`/saml/callback`)",
-                "service":"juju-{{ identifier }}-public-api-service"
-            },
-            "juju-{{ identifier }}-public-api-router-saml-oidc-callback-tls":{
-                "entryPoints":[
-                    "websecure"
-                ],
-                "rule":"Path(`/saml/callback`)",
-                "service":"juju-{{ identifier }}-public-api-service",
-                "tls":{
-                    "domains":[
-                        {
-                            "main":"{{ external_host }}",
-                            "sans":[
-                                "*.{{ external_host }}"
-                            ]
-                        }
-                    ]
-                }
-            },
             "juju-{{ identifier }}-public-api-router-saml":{
                 "entryPoints":[
                     "web"

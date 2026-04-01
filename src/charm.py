@@ -61,6 +61,9 @@ from constants import (
     OAUTH_GRANT_TYPES,
     OAUTH_SCOPES,
     PEER_INTEGRATION_NAME,
+    PEER_DATA_CA_BUNDLE,
+    PEER_DATA_BRIDGE_CERT,
+    PEER_DATA_BRIDGE_KEY,
     WORKLOAD_CONTAINER,
     LOCAL_CERTIFICATES_PATH,
     LOCAL_CHARM_CERTIFICATES_FILE,
@@ -288,12 +291,33 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._holistic_handler(event)
 
     def _ensure_tls(self) -> None:
+        """Ensure TLS CA bundle is available locally from source and in container.
+
+        Leader publishes CA bundle to peer data for all units to consume.
+        All units apply the CA bundle from peer data to local and container paths.
+        """
         LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-        if certificates := TLSCertificates.load(self.certificate_transfer_requirer).ca_bundle:
-            LOCAL_CHARM_CERTIFICATES_FILE.write_text(certificates)
-        elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
-            LOCAL_CHARM_CERTIFICATES_FILE.unlink()
+        # Leader loads from certificate transfer relation and publishes to peers
+        if self.unit.is_leader():
+            if certificates := TLSCertificates.load(self.certificate_transfer_requirer).ca_bundle:
+                LOCAL_CHARM_CERTIFICATES_FILE.write_text(certificates)
+            elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
+                LOCAL_CHARM_CERTIFICATES_FILE.unlink()
+            # Publish CA bundle to peer data
+            ca_bundle_content = (
+                LOCAL_CHARM_CERTIFICATES_FILE.read_text()
+                if LOCAL_CHARM_CERTIFICATES_FILE.exists()
+                else ""
+            )
+            self.peer_data[PEER_DATA_CA_BUNDLE] = ca_bundle_content
+        else:
+            # Followers read from peer data
+            ca_bundle_content = self.peer_data[PEER_DATA_CA_BUNDLE]
+            if ca_bundle_content:
+                LOCAL_CHARM_CERTIFICATES_FILE.write_text(ca_bundle_content)
+            elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
+                LOCAL_CHARM_CERTIFICATES_FILE.unlink()
 
         subprocess.run([
             "update-ca-certificates",
@@ -306,46 +330,77 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._workload_service.update_ca_certs()
 
     def _ensure_bridge_certificates(self) -> None:
+        """Ensure bridge TLS certificates are available and shared across peers.
+
+        Leader generates bridge cert/key on first run and publishes to peer data.
+        All units apply the bridge cert/key from peer data to local and container paths.
+        """
         LOCAL_BRIDGE_CERT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-        if not (LOCAL_BRIDGE_CERT_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.exists()):
-            try:
-                subprocess.run(
-                    [
-                        "openssl",
-                        "req",
-                        "-x509",
-                        "-newkey",
-                        "rsa:2048",
-                        "-keyout",
-                        str(LOCAL_BRIDGE_KEY_FILE),
-                        "-out",
-                        str(LOCAL_BRIDGE_CERT_FILE),
-                        "-days",
-                        "365",
-                        "-nodes",
-                        "-subj",
-                        "/CN=localhost",
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except Exception as e:
-                logger.error("unexpected error generating bridge cert: %s", e)
+        # Leader generates bridge certificates and publishes to peer data
+        if self.unit.is_leader():
+            if not (LOCAL_BRIDGE_CERT_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.exists()):
                 try:
-                    if LOCAL_BRIDGE_KEY_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.read_text() == "":
-                        LOCAL_BRIDGE_KEY_FILE.unlink()
-                    if (
-                        LOCAL_BRIDGE_CERT_FILE.exists()
-                        and LOCAL_BRIDGE_CERT_FILE.read_text() == ""
-                    ):
-                        LOCAL_BRIDGE_CERT_FILE.unlink()
-                except Exception:
-                    pass
-                self.unit.status = BlockedStatus(
-                    "Failed to generate bridge TLS certificate; unexpected error"
-                )
+                    subprocess.run(
+                        [
+                            "openssl",
+                            "req",
+                            "-x509",
+                            "-newkey",
+                            "rsa:2048",
+                            "-keyout",
+                            str(LOCAL_BRIDGE_KEY_FILE),
+                            "-out",
+                            str(LOCAL_BRIDGE_CERT_FILE),
+                            "-days",
+                            "365",
+                            "-nodes",
+                            "-subj",
+                            "/CN=localhost",
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                except Exception as e:
+                    logger.error("unexpected error generating bridge cert: %s", e)
+                    try:
+                        if (
+                            LOCAL_BRIDGE_KEY_FILE.exists()
+                            and LOCAL_BRIDGE_KEY_FILE.read_text() == ""
+                        ):
+                            LOCAL_BRIDGE_KEY_FILE.unlink()
+                        if (
+                            LOCAL_BRIDGE_CERT_FILE.exists()
+                            and LOCAL_BRIDGE_CERT_FILE.read_text() == ""
+                        ):
+                            LOCAL_BRIDGE_CERT_FILE.unlink()
+                    except Exception:
+                        pass
+                    self.unit.status = BlockedStatus(
+                        "Failed to generate bridge TLS certificate; unexpected error"
+                    )
+                    return
+
+            # Publish bridge cert/key to peer data
+            cert_content = (
+                LOCAL_BRIDGE_CERT_FILE.read_text() if LOCAL_BRIDGE_CERT_FILE.exists() else ""
+            )
+            key_content = (
+                LOCAL_BRIDGE_KEY_FILE.read_text() if LOCAL_BRIDGE_KEY_FILE.exists() else ""
+            )
+            self.peer_data[PEER_DATA_BRIDGE_CERT] = cert_content
+            self.peer_data[PEER_DATA_BRIDGE_KEY] = key_content
+        else:
+            # Followers read and apply from peer data
+            cert_content = self.peer_data[PEER_DATA_BRIDGE_CERT]
+            key_content = self.peer_data[PEER_DATA_BRIDGE_KEY]
+            if cert_content and key_content:
+                LOCAL_BRIDGE_CERT_FILE.write_text(cert_content)
+                LOCAL_BRIDGE_KEY_FILE.write_text(key_content)
+            else:
+                # Peer data not yet available, defer this action
+                self.unit.status = WaitingStatus("Waiting for bridge certificates from leader")
                 return
 
         self._workload_service.update_bridge_certificates()
@@ -384,6 +439,15 @@ class IdentitySAMLProviderCharm(CharmBase):
             return
 
         self._ensure_tls()
+
+        # Followers gate on peer TLS data availability
+        if not self.unit.is_leader():
+            if not (
+                self.peer_data[PEER_DATA_BRIDGE_CERT] and self.peer_data[PEER_DATA_BRIDGE_KEY]
+            ):
+                self.unit.status = WaitingStatus("Waiting for bridge certificates from leader")
+                return
+
         self._ensure_bridge_certificates()
 
         try:

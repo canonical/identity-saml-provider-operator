@@ -17,11 +17,6 @@ LOCAL_CERTIFICATES_FILE = Path(LOCAL_CERTIFICATES_PATH / "ca-certificates.crt")
 LOCAL_CHARM_CERTIFICATES_PATH = Path("/tmp/charm")
 LOCAL_CHARM_CERTIFICATES_FILE = Path(LOCAL_CHARM_CERTIFICATES_PATH / "charm-certificates.crt")
 
-# Bridge certificate (used by the workload service)
-CONTAINER_BRIDGE_CERT = Path("/root/.local/certs/bridge.crt")
-CONTAINER_BRIDGE_KEY = Path("/root/.local/certs/bridge.key")
-LOCAL_BRIDGE_CERT_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.crt"
-LOCAL_BRIDGE_KEY_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.key"
 
 # Application constants
 APPLICATION_PORT = 8082
@@ -32,6 +27,12 @@ CONTAINER_CERTIFICATES_PATH = Path("/etc/ssl/certs/")
 CONTAINER_CERTIFICATES_FILE = Path(CONTAINER_CERTIFICATES_PATH / "ca-certificates.crt")
 REDIRECT_URL = "/saml/callback"
 
+# Bridge certificate (used by the workload service)
+CONTAINER_BRIDGE_CERT = Path(CONTAINER_CERTIFICATES_PATH / "bridge.crt")
+CONTAINER_BRIDGE_KEY = Path(CONTAINER_CERTIFICATES_PATH / "bridge.key")
+LOCAL_BRIDGE_CERT_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.crt"
+LOCAL_BRIDGE_KEY_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.key"
+
 # Integration constants
 PEER_INTEGRATION_NAME = "peer"
 HYDRA_INTEGRATION_NAME = "oauth"
@@ -39,3 +40,8 @@ PUBLIC_ROUTE_INTEGRATION_NAME = "public-route"
 DATABASE_INTEGRATION_NAME = "database"
 CERTIFICATES_INTEGRATION_NAME = "certificates"
 CERTIFICATE_TRANSFER_INTEGRATION_NAME = "receive-ca-cert"
+
+# Peer data keys for TLS certificate distribution
+PEER_DATA_CA_BUNDLE = "tls_ca_bundle"
+PEER_DATA_BRIDGE_CERT = "tls_bridge_cert"
+PEER_DATA_BRIDGE_KEY = "tls_bridge_key"
