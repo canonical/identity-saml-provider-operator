@@ -17,12 +17,6 @@ LOCAL_CERTIFICATES_FILE = Path(LOCAL_CERTIFICATES_PATH / "ca-certificates.crt")
 LOCAL_CHARM_CERTIFICATES_PATH = Path("/tmp/charm")
 LOCAL_CHARM_CERTIFICATES_FILE = Path(LOCAL_CHARM_CERTIFICATES_PATH / "charm-certificates.crt")
 
-# Bridge certificate (used by the workload service)
-CONTAINER_BRIDGE_CERT = Path("/root/.local/certs/bridge.crt")
-CONTAINER_BRIDGE_KEY = Path("/root/.local/certs/bridge.key")
-LOCAL_BRIDGE_CERT_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.crt"
-LOCAL_BRIDGE_KEY_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.key"
-
 # Application constants
 APPLICATION_PORT = 8082
 ORY_HYDRA_HTTP_PORT = 8080
@@ -31,6 +25,13 @@ WORKLOAD_RUN_COMMAND = f"/usr/bin/{WORKLOAD_SERVICE}"
 CONTAINER_CERTIFICATES_PATH = Path("/etc/ssl/certs/")
 CONTAINER_CERTIFICATES_FILE = Path(CONTAINER_CERTIFICATES_PATH / "ca-certificates.crt")
 REDIRECT_URL = "/saml/callback"
+
+# Bridge certificate (used by the workload service)
+CONTAINER_BRIDGE_CERT = Path(CONTAINER_CERTIFICATES_PATH / "bridge.crt")
+CONTAINER_BRIDGE_KEY = Path(CONTAINER_CERTIFICATES_PATH / "bridge.key")
+LOCAL_BRIDGE_CERT_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.crt"
+LOCAL_BRIDGE_KEY_FILE = LOCAL_CHARM_CERTIFICATES_PATH / "bridge.key"
+
 
 # Integration constants
 PEER_INTEGRATION_NAME = "peer"

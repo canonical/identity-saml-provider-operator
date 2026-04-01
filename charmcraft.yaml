@@ -61,6 +61,12 @@ requires:
       Receive a CA cert.
       This relation can be used with a local CA to obtain the CA cert that was used to sign proxied
       endpoints.
+  certificates:
+    interface: tls-certificates
+    limit: 1
+    optional: true
+    description: |
+      Send a CSR to- and obtain a signed certificate from an external CA.
 
 config:
   options:
