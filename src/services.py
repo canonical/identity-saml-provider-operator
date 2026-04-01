@@ -18,12 +18,9 @@ from constants import (
     WORKLOAD_CONTAINER,
     WORKLOAD_RUN_COMMAND,
     WORKLOAD_SERVICE,
-    LOCAL_CERTIFICATES_FILE,
-    LOCAL_BRIDGE_CERT_FILE,
-    LOCAL_BRIDGE_KEY_FILE,
 )
 from exceptions import PebbleServiceError
-from integrations import DatabaseConfig, PublicRouteData
+from integrations import DatabaseConfig
 
 logger = logging.getLogger(__name__)
 
@@ -46,35 +43,6 @@ class WorkloadService:
 
     def open_ports(self) -> None:
         self._unit.open_port(protocol="tcp", port=APPLICATION_PORT)
-
-    def update_ca_certs(self) -> None:
-        ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
-        container_cert = str(CONTAINER_CERTIFICATES_FILE)
-
-        current = (
-            self._container.pull(container_cert).read()
-            if self._container.exists(container_cert)
-            else ""
-        )
-
-        if current == ca_certs:
-            return
-
-        self._container.push(container_cert, ca_certs, make_dirs=True)
-
-    def update_bridge_certificates(self) -> None:
-        container_cert = str(CONTAINER_BRIDGE_CERT)
-        container_key = str(CONTAINER_BRIDGE_KEY)
-
-        # If container already has both files, nothing to do.
-        if self._container.exists(container_cert) and self._container.exists(container_key):
-            return
-
-        if LOCAL_BRIDGE_CERT_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.exists():
-            cert_text = LOCAL_BRIDGE_CERT_FILE.read_text()
-            key_text = LOCAL_BRIDGE_KEY_FILE.read_text()
-            self._container.push(container_cert, cert_text, make_dirs=True)
-            self._container.push(container_key, key_text, make_dirs=True)
 
 
 class PebbleService:
@@ -102,10 +70,10 @@ class PebbleService:
         self,
         oauth: Optional[OauthProviderConfig] = None,
         database: Optional[DatabaseConfig] = None,
-        public_route: Optional[PublicRouteData] = None,
+        public_route_url: str = None,
     ) -> Layer:
         hydra_oath_url = oauth.issuer_url if oauth else ""
-        external_url = str(public_route.url) if public_route else ""
+        external_url = str(public_route_url) if public_route_url else ""
         client_id = oauth.client_id if oauth else ""
         client_secret = oauth.client_secret if oauth else ""
         redirect_url = urljoin(external_url, REDIRECT_URL) if external_url else ""
@@ -126,7 +94,7 @@ class PebbleService:
                 "SAML_PROVIDER_HYDRA_CA_CERT_PATH": str(CONTAINER_CERTIFICATES_FILE),
                 "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
                 "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
-                "SAML_PROVIDER_BRIDGE_BASE_URL": str(external_url),
+                "SAML_PROVIDER_BRIDGE_BASE_URL": external_url,
                 "SAML_PROVIDER_OIDC_CLIENT_ID": client_id,
                 "SAML_PROVIDER_OIDC_CLIENT_SECRET": client_secret,
                 "SAML_PROVIDER_OIDC_REDIRECT_URL": redirect_url,

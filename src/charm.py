@@ -5,15 +5,9 @@
 """A Juju charm for Identity SAML provider."""
 
 import logging
-import subprocess
 from typing import Any
 from urllib.parse import urljoin
 
-import ops
-
-from charms.certificate_transfer_interface.v1.certificate_transfer import (
-    CertificateTransferRequires,
-)
 from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseCreatedEvent,
     DatabaseEndpointsChangedEvent,
@@ -48,11 +42,10 @@ from ops import (
 from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
-from ops.pebble import Layer
+from ops.pebble import Error, Layer
 
 from constants import (
     APPLICATION_PORT,
-    CERTIFICATE_TRANSFER_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
     HYDRA_INTEGRATION_NAME,
@@ -62,18 +55,13 @@ from constants import (
     OAUTH_SCOPES,
     PEER_INTEGRATION_NAME,
     WORKLOAD_CONTAINER,
-    LOCAL_CERTIFICATES_PATH,
-    LOCAL_CHARM_CERTIFICATES_FILE,
-    LOCAL_CHARM_CERTIFICATES_PATH,
-    LOCAL_BRIDGE_CERT_FILE,
-    LOCAL_BRIDGE_KEY_FILE,
 )
 from exceptions import PebbleServiceError
 from integrations import (
+    CertificatesIntegration,
     DatabaseConfig,
     PeerData,
     PublicRouteData,
-    TLSCertificates,
 )
 from services import PebbleService, WorkloadService
 from utils import (
@@ -130,19 +118,8 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_public_route_broken,
         )
 
-        # Certificate transfer integration
-        self.certificate_transfer_requirer = CertificateTransferRequires(
-            self,
-            relationship_name=CERTIFICATE_TRANSFER_INTEGRATION_NAME,
-        )
-        self.framework.observe(
-            self.certificate_transfer_requirer.on.certificate_set_updated,
-            self._on_certificate_transfer_changed,
-        )
-        self.framework.observe(
-            self.certificate_transfer_requirer.on.certificates_removed,
-            self._on_certificate_transfer_changed,
-        )
+        # Certificates integration
+        self._certs_integration = CertificatesIntegration(self)
 
         # Lifecycle event handlers
         self.framework.observe(
@@ -199,10 +176,10 @@ class IdentitySAMLProviderCharm(CharmBase):
     def _pebble_layer(self) -> Layer:
         oauth_info = self.oauth.get_provider_info()
         database_config = DatabaseConfig.load(self.database_requirer)
-        public_route_config = PublicRouteData.load(self.public_route)
+        public_route_url = self._external_url
 
         return self._pebble_service.render_pebble_layer(
-            oauth_info, database_config, public_route_config
+            oauth_info, database_config, public_route_url
         )
 
     def _on_identity_saml_provider_pebble_ready(self, event: PebbleReadyEvent) -> None:
@@ -282,75 +259,12 @@ class IdentitySAMLProviderCharm(CharmBase):
     def _on_public_route_broken(self, event: RelationBrokenEvent) -> None:
         self.unit.status = MaintenanceStatus("Configuring resources")
 
+        if self.unit.is_leader():
+            logger.info("This app no longer has public-route")
+
         # needed due to how traefik_route lib is handling the event
         self.public_route._relation = event.relation
 
-        self._holistic_handler(event)
-
-    def _ensure_tls(self) -> None:
-        LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-        if certificates := TLSCertificates.load(self.certificate_transfer_requirer).ca_bundle:
-            LOCAL_CHARM_CERTIFICATES_FILE.write_text(certificates)
-        elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
-            LOCAL_CHARM_CERTIFICATES_FILE.unlink()
-
-        subprocess.run([
-            "update-ca-certificates",
-            "--fresh",
-            "--etccertsdir",
-            LOCAL_CERTIFICATES_PATH,
-            "--localcertsdir",
-            LOCAL_CHARM_CERTIFICATES_PATH,
-        ])
-        self._workload_service.update_ca_certs()
-
-    def _ensure_bridge_certificates(self) -> None:
-        LOCAL_BRIDGE_CERT_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-        if not (LOCAL_BRIDGE_CERT_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.exists()):
-            try:
-                subprocess.run(
-                    [
-                        "openssl",
-                        "req",
-                        "-x509",
-                        "-newkey",
-                        "rsa:2048",
-                        "-keyout",
-                        str(LOCAL_BRIDGE_KEY_FILE),
-                        "-out",
-                        str(LOCAL_BRIDGE_CERT_FILE),
-                        "-days",
-                        "365",
-                        "-nodes",
-                        "-subj",
-                        "/CN=localhost",
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except Exception as e:
-                logger.error("unexpected error generating bridge cert: %s", e)
-                try:
-                    if LOCAL_BRIDGE_KEY_FILE.exists() and LOCAL_BRIDGE_KEY_FILE.read_text() == "":
-                        LOCAL_BRIDGE_KEY_FILE.unlink()
-                    if (
-                        LOCAL_BRIDGE_CERT_FILE.exists()
-                        and LOCAL_BRIDGE_CERT_FILE.read_text() == ""
-                    ):
-                        LOCAL_BRIDGE_CERT_FILE.unlink()
-                except Exception:
-                    pass
-                self.unit.status = BlockedStatus(
-                    "Failed to generate bridge TLS certificate; unexpected error"
-                )
-                return
-
-        self._workload_service.update_bridge_certificates()
-
-    def _on_certificate_transfer_changed(self, event: ops.EventBase) -> None:
         self._holistic_handler(event)
 
     def _on_resource_patch_failed(self, event: K8sResourcePatchFailedEvent) -> None:
@@ -368,8 +282,17 @@ class IdentitySAMLProviderCharm(CharmBase):
             event.defer()
             return
 
-        if not PublicRouteData.load(self.public_route).url:
-            self.unit.status = WaitingStatus("Waiting for public-route URL")
+        if self.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME):
+            if not PublicRouteData.load(self.public_route).is_ready():
+                self.unit.status = WaitingStatus("Waiting for public ingress")
+                return
+
+        try:
+            self._certs_integration.update_certificates()
+        except Error:
+            self.unit.status = BlockedStatus(
+                "Failed to update the TLS certificates, please check the logs"
+            )
             return
 
         if not self.oauth.is_client_created():
@@ -382,9 +305,6 @@ class IdentitySAMLProviderCharm(CharmBase):
         if not self.database_requirer.is_resource_created():
             self.unit.status = WaitingStatus("Waiting for database creation")
             return
-
-        self._ensure_tls()
-        self._ensure_bridge_certificates()
 
         try:
             self._pebble_service.plan(self._pebble_layer)
