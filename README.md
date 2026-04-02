@@ -32,14 +32,13 @@ juju deploy ./identity-saml-provider-operator_ubuntu@24.04-amd64.charm --resourc
 ```shell
 juju switch core
 juju offer traefik-public:traefik-route
-juju offer self-signed-certificates:send-ca-cert
+juju offer self-signed-certificates:certificates certificates
 juju switch iam
 juju consume core.traefik-public
-juju consume core.self-signed-certificates
+juju integrate identity-saml-provider-operator:certificates admin/core.certificates
 juju integrate identity-saml-provider-operator traefik-public
 juju integrate identity-saml-provider-operator hydra
 juju integrate identity-saml-provider-operator postgresql
-juju integrate identity-saml-provider-operator self-signed-certificates
 ```
 
 ## Integrations
