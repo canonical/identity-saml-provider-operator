@@ -46,6 +46,7 @@ from ops.pebble import Error, Layer
 
 from constants import (
     APPLICATION_PORT,
+    CERTIFICATES_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
     HYDRA_INTEGRATION_NAME,
@@ -120,6 +121,22 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         # Certificates integration
         self._certs_integration = CertificatesIntegration(self)
+        self.framework.observe(
+            self.on[CERTIFICATES_INTEGRATION_NAME].relation_joined,
+            self._holistic_handler,
+        )
+        self.framework.observe(
+            self.on[CERTIFICATES_INTEGRATION_NAME].relation_changed,
+            self._holistic_handler,
+        )
+        self.framework.observe(
+            self.on[CERTIFICATES_INTEGRATION_NAME].relation_broken,
+            self._holistic_handler,
+        )
+        self.framework.observe(
+            self._certs_integration.cert_requirer.on.certificate_available,
+            self._holistic_handler,
+        )
 
         # Lifecycle event handlers
         self.framework.observe(

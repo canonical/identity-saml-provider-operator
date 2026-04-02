@@ -5,7 +5,6 @@ from contextlib import suppress
 import json
 import logging
 from dataclasses import dataclass, field
-import subprocess
 from typing import Any, KeysView, Optional, Self, TypeAlias
 from urllib.parse import urlparse
 
@@ -34,14 +33,9 @@ from constants import (
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
     CONTAINER_CERTIFICATES_FILE,
-    LOCAL_CERTIFICATES_FILE,
-    LOCAL_CERTIFICATES_PATH,
-    LOCAL_CHARM_CERTIFICATES_FILE,
-    LOCAL_CHARM_CERTIFICATES_PATH,
     PEER_INTEGRATION_NAME,
     PUBLIC_ROUTE_INTEGRATION_NAME,
 )
-from env_vars import EnvVars
 
 logger = logging.getLogger(__name__)
 JsonSerializable: TypeAlias = dict[str, Any] | list[Any] | int | str | float | bool | None
@@ -206,14 +200,9 @@ class CertificatesIntegration:
         self._charm = charm
         self._container = charm._container
 
-        k8s_svc_host = f"{charm.app.name}.{charm.model.name}.svc.cluster.local"
         self.csr_attributes = CertificateRequestAttributes(
-            common_name=k8s_svc_host,
-            sans_dns=frozenset((k8s_svc_host,)),
-            sans_ip=frozenset((
-                "127.0.0.1",
-                "0.0.0.0",
-            )),
+            common_name="cd.iam.prod.canonical.com",
+            sans_dns=frozenset(("cd.iam.prod.canonical.com",)),
         )
         self.cert_requirer = TLSCertificatesRequiresV4(
             charm,
@@ -221,15 +210,6 @@ class CertificatesIntegration:
             certificate_requests=[self.csr_attributes],
             mode=Mode.UNIT,
         )
-
-    def to_env_vars(self) -> EnvVars:
-        if not self.tls_enabled:
-            return {}
-
-        return {
-            "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
-            "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
-        }
 
     @property
     def tls_enabled(self) -> bool:
@@ -284,38 +264,37 @@ class CertificatesIntegration:
 
         if not self._certs_ready():
             logger.info("The certificates data is not ready.")
-            self._remove_certificates()
+            # self._remove_certificates()
             return
 
-        LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Certificates data is ready, preparing to push.")
 
-        if certificates := self._ca_chain:
-            ca_bundle = "\n".join(sorted(certificates))
-            LOCAL_CHARM_CERTIFICATES_FILE.write_text(ca_bundle)
-        elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
-            LOCAL_CHARM_CERTIFICATES_FILE.unlink()
+        # Collect the root CA and all chain certs for the trust bundle.
+        all_ca_certs: list[str] = []
+        if ca_cert := self._ca_cert:
+            all_ca_certs.append(ca_cert)
+            logger.debug("Added root CA to bundle.")
+        for chain_cert in self._ca_chain or []:
+            if chain_cert not in all_ca_certs:
+                all_ca_certs.append(chain_cert)
+                logger.debug("Added chain cert to bundle.")
 
-        subprocess.run(
-            [
-                "update-ca-certificates",
-                "--fresh",
-                "--etccertsdir",
-                LOCAL_CERTIFICATES_PATH,
-                "--localcertsdir",
-                LOCAL_CHARM_CERTIFICATES_PATH,
-            ],
-            capture_output=True,
-        )
+        ca_bundle = "\n".join(all_ca_certs)
+        logger.info(f"CA bundle ready with {len(all_ca_certs)} certificate(s).")
 
-        self._push_certificates()
+        self._push_certificates(ca_bundle=ca_bundle)
 
     def _certs_ready(self) -> bool:
         certs, private_key = self.cert_requirer.get_assigned_certificate(self.csr_attributes)
         return all((certs, private_key))
 
-    def _push_certificates(self) -> None:
-        ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
-        self._container.push(CONTAINER_CERTIFICATES_FILE, ca_certs, make_dirs=True)
+    def _push_certificates(self, *, ca_bundle: str) -> None:
+        logger.info("Pushing certificates to the workload container.")
+        logger.info(
+            f"CA Bundle: {CONTAINER_CERTIFICATES_FILE}\nServer Cert: {CONTAINER_BRIDGE_CERT}\nServer Key: {CONTAINER_BRIDGE_KEY}"
+        )
+
+        self._container.push(CONTAINER_CERTIFICATES_FILE, ca_bundle, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_KEY, self._server_key, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_CERT, self._server_cert, make_dirs=True)
 
