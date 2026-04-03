@@ -5,7 +5,6 @@ from contextlib import suppress
 import json
 import logging
 from dataclasses import dataclass, field
-import subprocess
 from typing import Any, KeysView, Optional, Self, TypeAlias
 from urllib.parse import urlparse
 
@@ -15,6 +14,7 @@ from yarl import URL
 
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
     CertificateTransferProvides,
+    CertificateTransferRequires,
 )
 from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateRequestAttributes,
@@ -33,15 +33,9 @@ from constants import (
     CERTIFICATE_TRANSFER_INTEGRATION_NAME,
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
-    CONTAINER_CERTIFICATES_FILE,
-    LOCAL_CERTIFICATES_FILE,
-    LOCAL_CERTIFICATES_PATH,
-    LOCAL_CHARM_CERTIFICATES_FILE,
-    LOCAL_CHARM_CERTIFICATES_PATH,
     PEER_INTEGRATION_NAME,
     PUBLIC_ROUTE_INTEGRATION_NAME,
 )
-from env_vars import EnvVars
 
 logger = logging.getLogger(__name__)
 JsonSerializable: TypeAlias = dict[str, Any] | list[Any] | int | str | float | bool | None
@@ -222,24 +216,13 @@ class CertificatesIntegration:
             mode=Mode.UNIT,
         )
 
-    def to_env_vars(self) -> EnvVars:
-        if not self.tls_enabled:
-            return {}
-
-        return {
-            "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
-            "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
-        }
-
     @property
     def tls_enabled(self) -> bool:
         if not self._container.can_connect():
             return False
 
-        return (
-            self._container.exists(CONTAINER_BRIDGE_KEY)
-            and self._container.exists(CONTAINER_BRIDGE_CERT)
-            and self._container.exists(CONTAINER_CERTIFICATES_FILE)
+        return self._container.exists(CONTAINER_BRIDGE_KEY) and self._container.exists(
+            CONTAINER_BRIDGE_CERT
         )
 
     @property
@@ -287,26 +270,7 @@ class CertificatesIntegration:
             self._remove_certificates()
             return
 
-        LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-        if certificates := self._ca_chain:
-            ca_bundle = "\n".join(sorted(certificates))
-            LOCAL_CHARM_CERTIFICATES_FILE.write_text(ca_bundle)
-        elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
-            LOCAL_CHARM_CERTIFICATES_FILE.unlink()
-
-        subprocess.run(
-            [
-                "update-ca-certificates",
-                "--fresh",
-                "--etccertsdir",
-                LOCAL_CERTIFICATES_PATH,
-                "--localcertsdir",
-                LOCAL_CHARM_CERTIFICATES_PATH,
-            ],
-            capture_output=True,
-        )
-
+        logger.info("Certificates data is ready, preparing to push.")
         self._push_certificates()
 
     def _certs_ready(self) -> bool:
@@ -314,14 +278,14 @@ class CertificatesIntegration:
         return all((certs, private_key))
 
     def _push_certificates(self) -> None:
-        ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
-        self._container.push(CONTAINER_CERTIFICATES_FILE, ca_certs, make_dirs=True)
+        logger.info("Pushing bridge certificates to the workload container.")
+        logger.info(f"Server Cert: {CONTAINER_BRIDGE_CERT}\nServer Key: {CONTAINER_BRIDGE_KEY}")
+
         self._container.push(CONTAINER_BRIDGE_KEY, self._server_key, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_CERT, self._server_cert, make_dirs=True)
 
     def _remove_certificates(self) -> None:
         for file in (
-            CONTAINER_CERTIFICATES_FILE,
             CONTAINER_BRIDGE_KEY,
             CONTAINER_BRIDGE_CERT,
         ):
@@ -360,3 +324,31 @@ class CertificatesTransferIntegration:
                 certificate=data.cert,  # type: ignore[arg-type]
                 relation_id=relation.id,
             )
+
+
+@dataclass(frozen=True)
+class TLSCertificates:
+    ca_bundle: str
+
+    @classmethod
+    def load(cls, requirer: CertificateTransferRequires) -> "TLSCertificates":
+        """Fetch the CA certificates from all "receive-ca-cert" integrations."""
+        # deal with v1 relations
+        ca_certs = requirer.get_all_certificates()
+
+        # deal with v0 relations
+        cert_transfer_integrations = requirer.charm.model.relations[
+            CERTIFICATE_TRANSFER_INTEGRATION_NAME
+        ]
+
+        for integration in cert_transfer_integrations:
+            ca = {
+                integration.data[unit]["ca"]
+                for unit in integration.units
+                if "ca" in integration.data.get(unit, {})
+            }
+            ca_certs.update(ca)
+
+        ca_bundle = "\n".join(sorted(ca_certs))
+
+        return cls(ca_bundle=ca_bundle)

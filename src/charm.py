@@ -4,10 +4,14 @@
 
 """A Juju charm for Identity SAML provider."""
 
+import subprocess
 import logging
 from typing import Any
 from urllib.parse import urljoin
 
+from charms.certificate_transfer_interface.v1.certificate_transfer import (
+    CertificateTransferRequires,
+)
 from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseCreatedEvent,
     DatabaseEndpointsChangedEvent,
@@ -38,6 +42,7 @@ from ops import (
     RelationChangedEvent,
     StartEvent,
     UpdateStatusEvent,
+    EventBase,
 )
 from ops.charm import CharmBase
 from ops.main import main
@@ -46,9 +51,14 @@ from ops.pebble import Error, Layer
 
 from constants import (
     APPLICATION_PORT,
+    CERTIFICATE_TRANSFER_INTEGRATION_NAME,
+    CERTIFICATES_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
     HYDRA_INTEGRATION_NAME,
+    LOCAL_CERTIFICATES_PATH,
+    LOCAL_CHARM_CERTIFICATES_FILE,
+    LOCAL_CHARM_CERTIFICATES_PATH,
     REDIRECT_URL,
     PUBLIC_ROUTE_INTEGRATION_NAME,
     OAUTH_GRANT_TYPES,
@@ -62,6 +72,7 @@ from integrations import (
     DatabaseConfig,
     PeerData,
     PublicRouteData,
+    TLSCertificates,
 )
 from services import PebbleService, WorkloadService
 from utils import (
@@ -120,6 +131,36 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         # Certificates integration
         self._certs_integration = CertificatesIntegration(self)
+        self.framework.observe(
+            self.on[CERTIFICATES_INTEGRATION_NAME].relation_joined,
+            self._holistic_handler,
+        )
+        self.framework.observe(
+            self.on[CERTIFICATES_INTEGRATION_NAME].relation_changed,
+            self._holistic_handler,
+        )
+        self.framework.observe(
+            self.on[CERTIFICATES_INTEGRATION_NAME].relation_broken,
+            self._holistic_handler,
+        )
+        self.framework.observe(
+            self._certs_integration.cert_requirer.on.certificate_available,
+            self._holistic_handler,
+        )
+
+        # Certificate transfer integration
+        self.certificate_transfer_requirer = CertificateTransferRequires(
+            self,
+            relationship_name=CERTIFICATE_TRANSFER_INTEGRATION_NAME,
+        )
+        self.framework.observe(
+            self.certificate_transfer_requirer.on.certificate_set_updated,
+            self._on_certificate_transfer_changed,
+        )
+        self.framework.observe(
+            self.certificate_transfer_requirer.on.certificates_removed,
+            self._on_certificate_transfer_changed,
+        )
 
         # Lifecycle event handlers
         self.framework.observe(
@@ -276,6 +317,27 @@ class IdentitySAMLProviderCharm(CharmBase):
         requests = {"cpu": "100m", "memory": "200Mi"}
         return adjust_resource_requirements(limits, requests, adhere_to_requests=True)
 
+    def _on_certificate_transfer_changed(self, event: EventBase) -> None:
+        self._holistic_handler(event)
+
+    def _ensure_tls(self) -> None:
+        LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        if certificates := TLSCertificates.load(self.certificate_transfer_requirer).ca_bundle:
+            LOCAL_CHARM_CERTIFICATES_FILE.write_text(certificates)
+        elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
+            LOCAL_CHARM_CERTIFICATES_FILE.unlink()
+
+        subprocess.run([
+            "update-ca-certificates",
+            "--fresh",
+            "--etccertsdir",
+            LOCAL_CERTIFICATES_PATH,
+            "--localcertsdir",
+            LOCAL_CHARM_CERTIFICATES_PATH,
+        ])
+        self._workload_service.update_ca_certs()
+
     def _holistic_handler(self, event: HookEvent) -> None:
         if not container_connectivity(self):
             self.unit.status = WaitingStatus("Container is not connected yet")
@@ -288,6 +350,7 @@ class IdentitySAMLProviderCharm(CharmBase):
                 return
 
         try:
+            self._ensure_tls()
             self._certs_integration.update_certificates()
         except Error:
             self.unit.status = BlockedStatus(
