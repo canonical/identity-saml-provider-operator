@@ -23,7 +23,7 @@ from integration.utils import (
 )
 
 from src.constants import (
-    CERTIFICATE_TRANSFER_INTEGRATION_NAME,
+    CERTIFICATES_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     HYDRA_INTEGRATION_NAME,
     PUBLIC_ROUTE_INTEGRATION_NAME,
@@ -154,7 +154,4 @@ def integrate_dependencies(juju: jubilant.Juju) -> None:
     juju.integrate(APP_NAME, DB_APP)
     juju.integrate(f"{APP_NAME}:{PUBLIC_ROUTE_INTEGRATION_NAME}", TRAEFIK_PUBLIC_APP)
     juju.integrate(f"{APP_NAME}:{HYDRA_INTEGRATION_NAME}", HYDRA_APP)
-    juju.integrate(
-        f"{APP_NAME}:{CERTIFICATE_TRANSFER_INTEGRATION_NAME}",
-        f"{CA_APP}:send-ca-cert",
-    )
+    juju.integrate(f"{APP_NAME}:{CERTIFICATES_INTEGRATION_NAME}", f"{CA_APP}:certificates")

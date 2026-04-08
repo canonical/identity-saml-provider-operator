@@ -4,3 +4,4 @@ jsonschema
 pytest
 pytest-mock
 ops[testing]
+lightkube

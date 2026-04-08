@@ -10,7 +10,7 @@ from pytest_mock import MockerFixture
 
 from charm import IdentitySAMLProviderCharm
 from constants import (
-    CERTIFICATE_TRANSFER_INTEGRATION_NAME,
+    CERTIFICATES_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     HYDRA_INTEGRATION_NAME,
     PEER_INTEGRATION_NAME,
@@ -95,8 +95,8 @@ def oauth_relation() -> Relation:
 
 
 @pytest.fixture
-def cert_transfer_relation() -> Relation:
-    return Relation(CERTIFICATE_TRANSFER_INTEGRATION_NAME)
+def certificates_relation() -> Relation:
+    return Relation(CERTIFICATES_INTEGRATION_NAME)
 
 
 def create_state(

@@ -4,6 +4,7 @@
 from unittest.mock import MagicMock, patch
 
 from ops import ActiveStatus, BlockedStatus, WaitingStatus
+from ops.pebble import Error
 from ops.testing import Container, Context, PeerRelation, Relation
 from unit.conftest import create_state
 
@@ -275,17 +276,17 @@ class TestOAuthInfoRemovedEvent:
 
 
 class TestCertificateTransferChangedEvent:
-    """Tests for the Certificate Transfer Changed event handler."""
+    """Tests for the Certificates Changed event handler."""
 
     def test_when_event_emitted(
         self,
         context: Context,
-        cert_transfer_relation: Relation,
+        certificates_relation: Relation,
     ) -> None:
-        """Test that certificate transfer changes trigger the holistic handler."""
-        state = create_state(relations=[cert_transfer_relation])
+        """Test that certificates relation changes trigger the holistic handler."""
+        state = create_state(relations=[certificates_relation])
 
-        state_out = context.run(context.on.relation_changed(cert_transfer_relation), state)
+        state_out = context.run(context.on.relation_changed(certificates_relation), state)
 
         assert isinstance(state_out.unit_status, WaitingStatus)
 
@@ -309,18 +310,19 @@ class TestHolisticHandler:
     def test_when_public_route_not_ready(
         self,
         context: Context,
+        public_route_relation: Relation,
         db_relation_ready: Relation,
         peer_relation: PeerRelation,
         oauth_relation: Relation,
     ) -> None:
         """Test waiting status when public route URL is not available."""
         state = create_state(
-            relations=[db_relation_ready, peer_relation, oauth_relation],
+            relations=[public_route_relation, db_relation_ready, peer_relation, oauth_relation],
         )
 
         state_out = context.run(context.on.update_status(), state)
 
-        assert state_out.unit_status == WaitingStatus("Waiting for public-route URL")
+        assert state_out.unit_status == WaitingStatus("Waiting for public ingress")
 
     def test_when_oauth_not_ready(
         self,
@@ -380,13 +382,12 @@ class TestHolisticHandler:
 
         assert state_out.unit_status == WaitingStatus("Waiting for database creation")
 
-    @patch("charm.IdentitySAMLProviderCharm._ensure_tls")
-    @patch("charm.IdentitySAMLProviderCharm._ensure_bridge_certificates")
+    @patch("charm.CertificatesIntegration.update_certificates")
     def test_when_all_ready(
         self,
-        mocked_bridge_certs: MagicMock,
-        mocked_tls: MagicMock,
+        mocked_update_certificates: MagicMock,
         context: Context,
+        certificates_relation: Relation,
         public_route_relation_ready: Relation,
         db_relation_ready: Relation,
         peer_relation: PeerRelation,
@@ -394,6 +395,7 @@ class TestHolisticHandler:
         """Test active status when all integrations are ready."""
         state = create_state(
             relations=[
+                certificates_relation,
                 public_route_relation_ready,
                 db_relation_ready,
                 peer_relation,
@@ -404,16 +406,14 @@ class TestHolisticHandler:
             state_out = context.run(context.on.update_status(), state)
 
         assert isinstance(state_out.unit_status, ActiveStatus)
-        mocked_tls.assert_called_once()
-        mocked_bridge_certs.assert_called_once()
+        mocked_update_certificates.assert_called_once()
 
-    @patch("charm.IdentitySAMLProviderCharm._ensure_tls")
-    @patch("charm.IdentitySAMLProviderCharm._ensure_bridge_certificates")
+    @patch("charm.CertificatesIntegration.update_certificates")
     def test_when_pebble_service_fails(
         self,
-        mocked_bridge_certs: MagicMock,
-        mocked_tls: MagicMock,
+        mocked_update_certificates: MagicMock,
         context: Context,
+        certificates_relation: Relation,
         public_route_relation_ready: Relation,
         db_relation_ready: Relation,
         peer_relation: PeerRelation,
@@ -423,6 +423,7 @@ class TestHolisticHandler:
 
         state = create_state(
             relations=[
+                certificates_relation,
                 public_route_relation_ready,
                 db_relation_ready,
                 peer_relation,
@@ -436,6 +437,32 @@ class TestHolisticHandler:
                 side_effect=PebbleServiceError("pebble error"),
             ),
         ):
+            state_out = context.run(context.on.update_status(), state)
+
+        assert isinstance(state_out.unit_status, BlockedStatus)
+        mocked_update_certificates.assert_called_once()
+
+    @patch("charm.CertificatesIntegration.update_certificates", side_effect=Error("tls error"))
+    def test_when_certificates_update_fails(
+        self,
+        _mocked_update_certificates: MagicMock,
+        context: Context,
+        certificates_relation: Relation,
+        public_route_relation_ready: Relation,
+        db_relation_ready: Relation,
+        peer_relation: PeerRelation,
+    ) -> None:
+        """Test blocked status when TLS certificates update fails."""
+        state = create_state(
+            relations=[
+                certificates_relation,
+                public_route_relation_ready,
+                db_relation_ready,
+                peer_relation,
+            ],
+        )
+
+        with patch("charm.OAuthRequirer.is_client_created", return_value=True):
             state_out = context.run(context.on.update_status(), state)
 
         assert isinstance(state_out.unit_status, BlockedStatus)

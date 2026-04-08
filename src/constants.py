@@ -5,7 +5,6 @@
 # Charm constants
 from pathlib import Path
 
-
 WORKLOAD_CONTAINER = "identity-saml-provider"
 WORKLOAD_SERVICE = "identity-saml-provider"
 OAUTH = "oauth"
@@ -39,4 +38,3 @@ HYDRA_INTEGRATION_NAME = "oauth"
 PUBLIC_ROUTE_INTEGRATION_NAME = "public-route"
 DATABASE_INTEGRATION_NAME = "database"
 CERTIFICATES_INTEGRATION_NAME = "certificates"
-CERTIFICATE_TRANSFER_INTEGRATION_NAME = "receive-ca-cert"
