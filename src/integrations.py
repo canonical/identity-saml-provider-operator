@@ -1,36 +1,35 @@
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-from contextlib import suppress
 import json
 import logging
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, KeysView, Optional, Self, TypeAlias
 from urllib.parse import urlparse
-
-from jinja2 import Template
-from ops.pebble import PathError
-from yarl import URL
 
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
     CertificateTransferProvides,
     CertificateTransferRequires,
 )
+from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
 from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateRequestAttributes,
     Mode,
     ProviderCertificate,
     TLSCertificatesRequiresV4,
 )
-from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
-from ops import CharmBase, Model
-
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
+from jinja2 import Template
+from ops import CharmBase, Model
+from ops.pebble import PathError
+from yarl import URL
+
 from configs import ServiceConfigs
 from constants import (
     APPLICATION_PORT,
-    CERTIFICATES_INTEGRATION_NAME,
     CERTIFICATE_TRANSFER_INTEGRATION_NAME,
+    CERTIFICATES_INTEGRATION_NAME,
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
     PEER_INTEGRATION_NAME,
