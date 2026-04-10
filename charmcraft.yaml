@@ -34,8 +34,6 @@ charm-libs:
     version: "0.3"  # Must be a string, not a number.
   - lib: data_platform_libs.data_interfaces
     version: "0.58"  # Must be a string, not a number.
-  - lib: certificate_transfer_interface.certificate_transfer
-    version: "1.15"  # Must be a string, not a number.
   - lib: tls_certificates_interface.tls_certificates
     version: "4.20"  # Must be a string, not a number. 
   - lib: observability_libs.kubernetes_compute_resources_patch
