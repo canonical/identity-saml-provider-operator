@@ -48,7 +48,6 @@ from ops.charm import CharmBase
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
 from ops.pebble import Error, Layer
-from ops.pebble import Error, Layer
 
 from constants import (
     APPLICATION_PORT,

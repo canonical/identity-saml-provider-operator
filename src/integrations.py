@@ -200,14 +200,22 @@ class CertificatesIntegration:
         self._charm = charm
         self._container = charm._container
 
-        k8s_svc_host = f"{charm.app.name}.{charm.model.name}.svc.cluster.local"
+        host_name = f"{charm.app.name}.{charm.model.name}.svc.cluster.local"
+        relation = charm.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME)
+        if relation and relation.app:
+            external_host = relation.data[relation.app].get("external_host", "")
+            if external_host:
+                host_name = external_host
+                logger.info("External hostname obtained from the ingress provider: %s", host_name)
+            else:
+                logger.error(
+                    "External hostname is not set on the ingress provider, using default: %s",
+                    host_name,
+                )
+
         self.csr_attributes = CertificateRequestAttributes(
-            common_name=k8s_svc_host,
-            sans_dns=frozenset((k8s_svc_host,)),
-            sans_ip=frozenset((
-                "127.0.0.1",
-                "0.0.0.0",
-            )),
+            common_name=host_name,
+            sans_dns=frozenset((host_name,)),
         )
         self.cert_requirer = TLSCertificatesRequiresV4(
             charm,
