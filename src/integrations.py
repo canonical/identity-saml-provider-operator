@@ -5,7 +5,7 @@ import json
 import logging
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any, KeysView, Optional, Self, TypeAlias
+from typing import Any, KeysView, Optional, TypeAlias
 from urllib.parse import urlparse
 
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
@@ -23,6 +23,7 @@ from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from jinja2 import Template
 from ops import CharmBase, Model
 from ops.pebble import PathError
+from typing_extensions import Self
 from yarl import URL
 
 from configs import ServiceConfigs

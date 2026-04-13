@@ -275,18 +275,35 @@ class TestOAuthInfoRemovedEvent:
         assert isinstance(state_out.unit_status, WaitingStatus)
 
 
-class TestCertificateTransferChangedEvent:
-    """Tests for the Certificates Changed event handler."""
+class TestCertificatesChangedEvent:
+    """Tests for the TLS Certificates event handler."""
 
     def test_when_event_emitted(
         self,
         context: Context,
         certificates_relation: Relation,
+        public_route_relation_ready: Relation,
     ) -> None:
-        """Test that certificates relation changes trigger the holistic handler."""
-        state = create_state(relations=[certificates_relation])
+        """Test that TLS certificates relation changes trigger the holistic handler."""
+        state = create_state(relations=[certificates_relation, public_route_relation_ready])
 
         state_out = context.run(context.on.relation_changed(certificates_relation), state)
+
+        assert isinstance(state_out.unit_status, WaitingStatus)
+
+
+class TestCertificateTransferChangedEvent:
+    """Tests for the Certificate Transfer event handler."""
+
+    def test_when_event_emitted(
+        self,
+        context: Context,
+        certificate_transfer_relation: Relation,
+    ) -> None:
+        """Test that certificate transfer relation changes trigger the holistic handler."""
+        state = create_state(relations=[certificate_transfer_relation])
+
+        state_out = context.run(context.on.relation_changed(certificate_transfer_relation), state)
 
         assert isinstance(state_out.unit_status, WaitingStatus)
 
@@ -409,6 +426,60 @@ class TestHolisticHandler:
         mocked_update_certificates.assert_called_once()
 
     @patch("charm.CertificatesIntegration.update_certificates")
+    def test_when_all_ready_with_certificate_transfer(
+        self,
+        mocked_update_certificates: MagicMock,
+        context: Context,
+        certificate_transfer_relation: Relation,
+        public_route_relation_ready: Relation,
+        db_relation_ready: Relation,
+        peer_relation: PeerRelation,
+    ) -> None:
+        """Test active status with certificate transfer relation."""
+        state = create_state(
+            relations=[
+                certificate_transfer_relation,
+                public_route_relation_ready,
+                db_relation_ready,
+                peer_relation,
+            ],
+        )
+
+        with patch("charm.OAuthRequirer.is_client_created", return_value=True):
+            state_out = context.run(context.on.update_status(), state)
+
+        assert isinstance(state_out.unit_status, ActiveStatus)
+        mocked_update_certificates.assert_called_once()
+
+    @patch("charm.CertificatesIntegration.update_certificates")
+    def test_when_all_ready_with_both_cert_relations(
+        self,
+        mocked_update_certificates: MagicMock,
+        context: Context,
+        certificates_relation: Relation,
+        certificate_transfer_relation: Relation,
+        public_route_relation_ready: Relation,
+        db_relation_ready: Relation,
+        peer_relation: PeerRelation,
+    ) -> None:
+        """Test active status with both certificate relations."""
+        state = create_state(
+            relations=[
+                certificates_relation,
+                certificate_transfer_relation,
+                public_route_relation_ready,
+                db_relation_ready,
+                peer_relation,
+            ],
+        )
+
+        with patch("charm.OAuthRequirer.is_client_created", return_value=True):
+            state_out = context.run(context.on.update_status(), state)
+
+        assert isinstance(state_out.unit_status, ActiveStatus)
+        mocked_update_certificates.assert_called_once()
+
+    @patch("charm.CertificatesIntegration.update_certificates")
     def test_when_pebble_service_fails(
         self,
         mocked_update_certificates: MagicMock,
@@ -442,6 +513,40 @@ class TestHolisticHandler:
         assert isinstance(state_out.unit_status, BlockedStatus)
         mocked_update_certificates.assert_called_once()
 
+    @patch("charm.CertificatesIntegration.update_certificates")
+    def test_when_pebble_service_fails_with_certificate_transfer(
+        self,
+        mocked_update_certificates: MagicMock,
+        context: Context,
+        certificate_transfer_relation: Relation,
+        public_route_relation_ready: Relation,
+        db_relation_ready: Relation,
+        peer_relation: PeerRelation,
+    ) -> None:
+        """Test blocked status with certificate transfer when pebble service fails."""
+        from exceptions import PebbleServiceError
+
+        state = create_state(
+            relations=[
+                certificate_transfer_relation,
+                public_route_relation_ready,
+                db_relation_ready,
+                peer_relation,
+            ],
+        )
+
+        with (
+            patch("charm.OAuthRequirer.is_client_created", return_value=True),
+            patch(
+                "charm.PebbleService.plan",
+                side_effect=PebbleServiceError("pebble error"),
+            ),
+        ):
+            state_out = context.run(context.on.update_status(), state)
+
+        assert isinstance(state_out.unit_status, BlockedStatus)
+        mocked_update_certificates.assert_called_once()
+
     @patch("charm.CertificatesIntegration.update_certificates", side_effect=Error("tls error"))
     def test_when_certificates_update_fails(
         self,
@@ -456,6 +561,31 @@ class TestHolisticHandler:
         state = create_state(
             relations=[
                 certificates_relation,
+                public_route_relation_ready,
+                db_relation_ready,
+                peer_relation,
+            ],
+        )
+
+        with patch("charm.OAuthRequirer.is_client_created", return_value=True):
+            state_out = context.run(context.on.update_status(), state)
+
+        assert isinstance(state_out.unit_status, BlockedStatus)
+
+    @patch("charm.CertificatesIntegration.update_certificates", side_effect=Error("tls error"))
+    def test_when_certificates_update_fails_with_certificate_transfer(
+        self,
+        _mocked_update_certificates: MagicMock,
+        context: Context,
+        certificate_transfer_relation: Relation,
+        public_route_relation_ready: Relation,
+        db_relation_ready: Relation,
+        peer_relation: PeerRelation,
+    ) -> None:
+        """Test blocked status when certificates update fails with cert transfer."""
+        state = create_state(
+            relations=[
+                certificate_transfer_relation,
                 public_route_relation_ready,
                 db_relation_ready,
                 peer_relation,
