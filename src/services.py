@@ -14,6 +14,7 @@ from constants import (
     CONTAINER_CERTIFICATES_FILE,
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
+    LOCAL_CERTIFICATES_FILE,
     REDIRECT_URL,
     WORKLOAD_CONTAINER,
     WORKLOAD_RUN_COMMAND,
@@ -43,6 +44,21 @@ class WorkloadService:
 
     def open_ports(self) -> None:
         self._unit.open_port(protocol="tcp", port=APPLICATION_PORT)
+
+    def update_ca_certs(self) -> None:
+        ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
+        container_cert = str(CONTAINER_CERTIFICATES_FILE)
+
+        current = (
+            self._container.pull(container_cert).read()
+            if self._container.exists(container_cert)
+            else ""
+        )
+
+        if current == ca_certs:
+            return
+
+        self._container.push(container_cert, ca_certs, make_dirs=True)
 
 
 class PebbleService:

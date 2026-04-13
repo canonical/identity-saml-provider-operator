@@ -14,6 +14,7 @@ from yarl import URL
 
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
     CertificateTransferProvides,
+    CertificateTransferRequires,
 )
 from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateRequestAttributes,
@@ -32,7 +33,6 @@ from constants import (
     CERTIFICATE_TRANSFER_INTEGRATION_NAME,
     CONTAINER_BRIDGE_CERT,
     CONTAINER_BRIDGE_KEY,
-    CONTAINER_CERTIFICATES_FILE,
     PEER_INTEGRATION_NAME,
     PUBLIC_ROUTE_INTEGRATION_NAME,
 )
@@ -200,9 +200,22 @@ class CertificatesIntegration:
         self._charm = charm
         self._container = charm._container
 
+        host_name = f"{charm.app.name}.{charm.model.name}.svc.cluster.local"
+        relation = charm.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME)
+        if relation and relation.app:
+            external_host = relation.data[relation.app].get("external_host", "")
+            if external_host:
+                host_name = external_host
+                logger.info("External hostname obtained from the ingress provider: %s", host_name)
+            else:
+                logger.error(
+                    "External hostname is not set on the ingress provider, using default: %s",
+                    host_name,
+                )
+
         self.csr_attributes = CertificateRequestAttributes(
-            common_name="cd.iam.prod.canonical.com",
-            sans_dns=frozenset(("cd.iam.prod.canonical.com",)),
+            common_name=host_name,
+            sans_dns=frozenset((host_name,)),
         )
         self.cert_requirer = TLSCertificatesRequiresV4(
             charm,
@@ -216,10 +229,8 @@ class CertificatesIntegration:
         if not self._container.can_connect():
             return False
 
-        return (
-            self._container.exists(CONTAINER_BRIDGE_KEY)
-            and self._container.exists(CONTAINER_BRIDGE_CERT)
-            and self._container.exists(CONTAINER_CERTIFICATES_FILE)
+        return self._container.exists(CONTAINER_BRIDGE_KEY) and self._container.exists(
+            CONTAINER_BRIDGE_CERT
         )
 
     @property
@@ -264,43 +275,25 @@ class CertificatesIntegration:
 
         if not self._certs_ready():
             logger.info("The certificates data is not ready.")
-            # self._remove_certificates()
+            self._remove_certificates()
             return
 
         logger.info("Certificates data is ready, preparing to push.")
-
-        # Collect the root CA and all chain certs for the trust bundle.
-        all_ca_certs: list[str] = []
-        if ca_cert := self._ca_cert:
-            all_ca_certs.append(ca_cert)
-            logger.debug("Added root CA to bundle.")
-        for chain_cert in self._ca_chain or []:
-            if chain_cert not in all_ca_certs:
-                all_ca_certs.append(chain_cert)
-                logger.debug("Added chain cert to bundle.")
-
-        ca_bundle = "\n".join(all_ca_certs)
-        logger.info(f"CA bundle ready with {len(all_ca_certs)} certificate(s).")
-
-        self._push_certificates(ca_bundle=ca_bundle)
+        self._push_certificates()
 
     def _certs_ready(self) -> bool:
         certs, private_key = self.cert_requirer.get_assigned_certificate(self.csr_attributes)
         return all((certs, private_key))
 
-    def _push_certificates(self, *, ca_bundle: str) -> None:
-        logger.info("Pushing certificates to the workload container.")
-        logger.info(
-            f"CA Bundle: {CONTAINER_CERTIFICATES_FILE}\nServer Cert: {CONTAINER_BRIDGE_CERT}\nServer Key: {CONTAINER_BRIDGE_KEY}"
-        )
+    def _push_certificates(self) -> None:
+        logger.info("Pushing bridge certificates to the workload container.")
+        logger.info(f"Server Cert: {CONTAINER_BRIDGE_CERT}\nServer Key: {CONTAINER_BRIDGE_KEY}")
 
-        self._container.push(CONTAINER_CERTIFICATES_FILE, ca_bundle, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_KEY, self._server_key, make_dirs=True)
         self._container.push(CONTAINER_BRIDGE_CERT, self._server_cert, make_dirs=True)
 
     def _remove_certificates(self) -> None:
         for file in (
-            CONTAINER_CERTIFICATES_FILE,
             CONTAINER_BRIDGE_KEY,
             CONTAINER_BRIDGE_CERT,
         ):
@@ -339,3 +332,31 @@ class CertificatesTransferIntegration:
                 certificate=data.cert,  # type: ignore[arg-type]
                 relation_id=relation.id,
             )
+
+
+@dataclass(frozen=True)
+class TLSCertificates:
+    ca_bundle: str
+
+    @classmethod
+    def load(cls, requirer: CertificateTransferRequires) -> "TLSCertificates":
+        """Fetch the CA certificates from all "receive-ca-cert" integrations."""
+        # deal with v1 relations
+        ca_certs = requirer.get_all_certificates()
+
+        # deal with v0 relations
+        cert_transfer_integrations = requirer.charm.model.relations[
+            CERTIFICATE_TRANSFER_INTEGRATION_NAME
+        ]
+
+        for integration in cert_transfer_integrations:
+            ca = {
+                integration.data[unit]["ca"]
+                for unit in integration.units
+                if "ca" in integration.data.get(unit, {})
+            }
+            ca_certs.update(ca)
+
+        ca_bundle = "\n".join(sorted(ca_certs))
+
+        return cls(ca_bundle=ca_bundle)
