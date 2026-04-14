@@ -1,0 +1,7 @@
+-r requirements.txt
+coverage[toml]
+jsonschema
+pytest
+pytest-mock
+ops[testing]
+lightkube

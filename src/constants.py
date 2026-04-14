@@ -5,7 +5,6 @@
 # Charm constants
 from pathlib import Path
 
-
 WORKLOAD_CONTAINER = "identity-saml-provider"
 WORKLOAD_SERVICE = "identity-saml-provider"
 OAUTH = "oauth"

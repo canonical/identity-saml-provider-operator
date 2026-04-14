@@ -4,8 +4,8 @@
 
 """A Juju charm for Identity SAML provider."""
 
-import subprocess
 import logging
+import subprocess
 from typing import Any
 from urllib.parse import urljoin
 
@@ -30,19 +30,18 @@ from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     adjust_resource_requirements,
 )
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
-
 from ops import (
     ConfigChangedEvent,
+    EventBase,
     HookEvent,
     LeaderElectedEvent,
     MaintenanceStatus,
     PebbleReadyEvent,
     RelationBrokenEvent,
-    RelationEvent,
     RelationChangedEvent,
+    RelationEvent,
     StartEvent,
     UpdateStatusEvent,
-    EventBase,
 )
 from ops.charm import CharmBase
 from ops.main import main
@@ -59,11 +58,11 @@ from constants import (
     LOCAL_CERTIFICATES_PATH,
     LOCAL_CHARM_CERTIFICATES_FILE,
     LOCAL_CHARM_CERTIFICATES_PATH,
-    REDIRECT_URL,
-    PUBLIC_ROUTE_INTEGRATION_NAME,
     OAUTH_GRANT_TYPES,
     OAUTH_SCOPES,
     PEER_INTEGRATION_NAME,
+    PUBLIC_ROUTE_INTEGRATION_NAME,
+    REDIRECT_URL,
     WORKLOAD_CONTAINER,
 )
 from exceptions import PebbleServiceError

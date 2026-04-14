@@ -38,7 +38,9 @@ charm-libs:
     version: "4.20"  # Must be a string, not a number. 
   - lib: observability_libs.kubernetes_compute_resources_patch
     version: "0.9"  # Must be a string, not a number. 
-
+  - lib: certificate_transfer_interface.certificate_transfer
+    version: "1.15"  # Must be a string, not a number. 
+    
 requires:
   oauth:
     interface: oauth
