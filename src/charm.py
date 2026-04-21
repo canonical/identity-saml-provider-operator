@@ -4,12 +4,11 @@
 
 """A Juju charm for Identity SAML provider."""
 
-import subprocess
 import logging
-from typing import Any
-from urllib.parse import urljoin
+from typing import Any, Iterable, TypeVar
 
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
+    CertificatesAvailableEvent,
     CertificateTransferRequires,
 )
 from charms.data_platform_libs.v0.data_interfaces import (
@@ -17,67 +16,79 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseEndpointsChangedEvent,
     DatabaseRequires,
 )
+from charms.hydra.v0.oauth import ClientConfig as OAuthClientConfig
 from charms.hydra.v0.oauth import (
-    ClientConfig,
     OAuthInfoChangedEvent,
     OAuthInfoRemovedEvent,
     OAuthRequirer,
 )
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
-    K8sResourcePatchFailedEvent,
     KubernetesComputeResourcesPatch,
-    ResourceRequirements,
-    adjust_resource_requirements,
 )
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
-
 from ops import (
     ConfigChangedEvent,
-    HookEvent,
+    EventBase,
     LeaderElectedEvent,
-    MaintenanceStatus,
     PebbleReadyEvent,
     RelationBrokenEvent,
-    RelationEvent,
     RelationChangedEvent,
+    RelationEvent,
     StartEvent,
     UpdateStatusEvent,
-    EventBase,
 )
-from ops.charm import CharmBase
+from ops.charm import CharmBase, CollectStatusEvent, SecretChangedEvent
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
-from ops.pebble import Error, Layer
+from ops.pebble import Layer
 
+from configs import (
+    CharmConfig,
+    ContainerFile,
+    HydraCertificates,
+    JujuSecretResolver,
+    KubernetesResources,
+    SAMLBridgeCert,
+    SAMLBridgeKey,
+)
 from constants import (
     APPLICATION_PORT,
     CERTIFICATE_TRANSFER_INTEGRATION_NAME,
-    CERTIFICATES_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
-    HYDRA_INTEGRATION_NAME,
-    LOCAL_CERTIFICATES_PATH,
-    LOCAL_CHARM_CERTIFICATES_FILE,
-    LOCAL_CHARM_CERTIFICATES_PATH,
-    REDIRECT_URL,
-    PUBLIC_ROUTE_INTEGRATION_NAME,
     OAUTH_GRANT_TYPES,
+    OAUTH_INTEGRATION_NAME,
     OAUTH_SCOPES,
+    OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH,
     PEER_INTEGRATION_NAME,
+    PUBLIC_ROUTE_INTEGRATION_NAME,
     WORKLOAD_CONTAINER,
 )
 from exceptions import PebbleServiceError
 from integrations import (
-    CertificatesIntegration,
     DatabaseConfig,
+    OAuthIntegration,
     PeerData,
-    PublicRouteData,
-    TLSCertificates,
+    PublicRouteIntegration,
+    TransferredCertificates,
 )
 from services import PebbleService, WorkloadService
 from utils import (
+    EVENT_DEFER_CONDITIONS,
+    NOOP_CONDITIONS,
+    certificate_transfer_integration_exists,
     container_connectivity,
+    database_integration_exists,
+    database_resource_is_created,
+    oauth_integration_exists,
+    peer_integration_exists,
+    public_route_integration_exists,
+    saml_bridge_certs_exist,
 )
+
+logger = logging.getLogger(__name__)
+
+HookEventType = TypeVar("HookEventType", bound=EventBase)
 
 
 class IdentitySAMLProviderCharm(CharmBase):
@@ -85,9 +96,26 @@ class IdentitySAMLProviderCharm(CharmBase):
         super().__init__(*args)
 
         self.peer_data = PeerData(self.model)
+        self.charm_config = CharmConfig(self.config, JujuSecretResolver(self.model))
+
         self._container = self.unit.get_container(WORKLOAD_CONTAINER)
         self._workload_service = WorkloadService(self.unit)
         self._pebble_service = PebbleService(self.unit)
+
+        # Lifecycle event handlers
+        self.framework.observe(self.on.leader_elected, self._on_leader_elected)
+        self.framework.observe(self.on.config_changed, self._on_config_changed)
+        self.framework.observe(self.on.start, self._on_start)
+        self.framework.observe(
+            self.on.identity_saml_provider_pebble_ready,
+            self._on_identity_saml_provider_pebble_ready,
+        )
+        self.framework.observe(self.on.peer_relation_changed, self._on_peer_relation_changed)
+        self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(self.on.collect_unit_status, self._on_collect_status)
+
+        # Secrets
+        self.framework.observe(self.on.secret_changed, self._on_secret_changed)
 
         # Database integration
         self.database_requirer = DatabaseRequires(
@@ -109,13 +137,14 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_database_relation_broken,
         )
 
-        # public route via raw traefik routing configuration
-        self.public_route = TraefikRouteRequirer(
+        # Public route integration
+        self.public_route_requirer = TraefikRouteRequirer(
             self,
             self.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME),
             PUBLIC_ROUTE_INTEGRATION_NAME,
             raw=True,
         )
+        self.public_route_integration = PublicRouteIntegration(self.public_route_requirer)
         self.framework.observe(
             self.on[PUBLIC_ROUTE_INTEGRATION_NAME].relation_joined,
             self._on_public_route_changed,
@@ -129,99 +158,76 @@ class IdentitySAMLProviderCharm(CharmBase):
             self._on_public_route_broken,
         )
 
-        # Certificates integration
-        self._certs_integration = CertificatesIntegration(self)
+        # OAuth integration
+        self.oauth_requirer = OAuthRequirer(
+            self,
+            self._oauth_client_config,
+            relation_name=OAUTH_INTEGRATION_NAME,
+        )
+        self.oauth_integration = OAuthIntegration(self.oauth_requirer)
         self.framework.observe(
-            self.on[CERTIFICATES_INTEGRATION_NAME].relation_joined,
-            self._holistic_handler,
+            self.oauth_requirer.on.oauth_info_changed, self._on_oauth_info_changed
         )
         self.framework.observe(
-            self.on[CERTIFICATES_INTEGRATION_NAME].relation_changed,
-            self._holistic_handler,
-        )
-        self.framework.observe(
-            self.on[CERTIFICATES_INTEGRATION_NAME].relation_broken,
-            self._holistic_handler,
-        )
-        self.framework.observe(
-            self._certs_integration.cert_requirer.on.certificate_available,
-            self._holistic_handler,
+            self.oauth_requirer.on.oauth_info_removed, self._on_oauth_info_changed
         )
 
         # Certificate transfer integration
         self.certificate_transfer_requirer = CertificateTransferRequires(
-            self,
-            relationship_name=CERTIFICATE_TRANSFER_INTEGRATION_NAME,
+            self, relationship_name=CERTIFICATE_TRANSFER_INTEGRATION_NAME
         )
         self.framework.observe(
             self.certificate_transfer_requirer.on.certificate_set_updated,
-            self._on_certificate_transfer_changed,
-        )
-        self.framework.observe(
-            self.certificate_transfer_requirer.on.certificates_removed,
-            self._on_certificate_transfer_changed,
+            self._on_certificate_transfer_available,
         )
 
-        # Lifecycle event handlers
-        self.framework.observe(
-            self.on.identity_saml_provider_pebble_ready,
-            self._on_identity_saml_provider_pebble_ready,
-        )
-        self.framework.observe(self.on.leader_elected, self._on_leader_elected)
-        self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.framework.observe(self.on.update_status, self._on_update_status)
-        self.framework.observe(self.on.start, self._on_start)
-        self.framework.observe(self.on.peer_relation_changed, self._on_peer_relation_changed)
-
-        # peers
-        self.framework.observe(
-            self.on[PEER_INTEGRATION_NAME].relation_created, self._holistic_handler
-        )
-        self.framework.observe(
-            self.on[PEER_INTEGRATION_NAME].relation_changed, self._holistic_handler
-        )
-
-        # Oauth integration
-        oauth_client_config = ClientConfig(
-            redirect_uri=urljoin(self._external_url, REDIRECT_URL),
-            grant_types=OAUTH_GRANT_TYPES,
-            scope=OAUTH_SCOPES,
-        )
-        self.oauth = OAuthRequirer(self, oauth_client_config, relation_name=HYDRA_INTEGRATION_NAME)
-        self.framework.observe(
-            self.oauth.on.oauth_info_changed,
-            self._on_oauth_info_changed,
-        )
-        self.framework.observe(
-            self.oauth.on.oauth_info_removed,
-            self._on_oauth_info_changed,
-        )
-
-        # Resources patching
-        self.resources_patch = KubernetesComputeResourcesPatch(
+        # Kubernetes resources management
+        self._resources_patch = KubernetesComputeResourcesPatch(
             self,
             WORKLOAD_CONTAINER,
-            resource_reqs_func=self._resource_reqs_from_config,
-        )
-        self.framework.observe(
-            self.resources_patch.on.patch_failed, self._on_resource_patch_failed
+            resource_reqs_func=KubernetesResources(self.config),
         )
 
     @property
-    def _external_url(self) -> str:
-        if url := PublicRouteData.load(self.public_route).url:
-            return str(url)
+    def internal_base_url(self) -> str:
         return f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}"
 
     @property
+    def _oauth_client_config(self) -> OAuthClientConfig:
+        base_url = self.public_route_integration.external_base_url or self.internal_base_url
+        return OAuthClientConfig(
+            redirect_uri=base_url + OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH,
+            scope=OAUTH_SCOPES,
+            grant_types=OAUTH_GRANT_TYPES,
+        )
+
+    @property
     def _pebble_layer(self) -> Layer:
-        oauth_info = self.oauth.get_provider_info()
         database_config = DatabaseConfig.load(self.database_requirer)
-        public_route_url = self._external_url
 
         return self._pebble_service.render_pebble_layer(
-            oauth_info, database_config, public_route_url
+            database_config,
+            self.public_route_integration,
+            self.oauth_integration,
         )
+
+    @property
+    def config_files(self) -> Iterable[ContainerFile]:
+        hydra_ca = TransferredCertificates.load(self.certificate_transfer_requirer)
+        return [
+            SAMLBridgeCert.from_sources(self.charm_config),
+            SAMLBridgeKey.from_sources(self.charm_config),
+            HydraCertificates.from_sources(hydra_ca),
+        ]
+
+    def _on_leader_elected(self, event: LeaderElectedEvent) -> None:
+        self._holistic_handler(event)
+
+    def _on_start(self, event: StartEvent) -> None:
+        self._holistic_handler(event)
+
+    def _on_config_changed(self, event: ConfigChangedEvent) -> None:
+        self._holistic_handler(event)
 
     def _on_identity_saml_provider_pebble_ready(self, event: PebbleReadyEvent) -> None:
         if not container_connectivity(self):
@@ -233,22 +239,13 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         self._holistic_handler(event)
 
-    def _on_leader_elected(self, event: LeaderElectedEvent) -> None:
-        self._holistic_handler(event)
-
-    def _on_config_changed(self, event: ConfigChangedEvent) -> None:
-        self._holistic_handler(event)
-
     def _on_update_status(self, event: UpdateStatusEvent) -> None:
-        self._holistic_handler(event)
-
-    def _on_start(self, event: StartEvent) -> None:
         self._holistic_handler(event)
 
     def _on_peer_relation_changed(self, event: RelationChangedEvent) -> None:
         self._holistic_handler(event)
 
-    def _on_oauth_info_changed(self, event: OAuthInfoChangedEvent | OAuthInfoRemovedEvent) -> None:
+    def _on_secret_changed(self, event: SecretChangedEvent) -> None:
         self._holistic_handler(event)
 
     def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
@@ -257,14 +254,13 @@ class IdentitySAMLProviderCharm(CharmBase):
             event.defer()
             return
 
-        self._holistic_handler(event)
-
         if not self.unit.is_leader():
             logger.info(
                 "Unit does not have leadership. Wait for leader unit to run the migration."
             )
-            event.defer()
             return
+
+        self._holistic_handler(event)
 
     def _on_database_changed(self, event: DatabaseEndpointsChangedEvent) -> None:
         self._holistic_handler(event)
@@ -273,123 +269,92 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._holistic_handler(event)
 
     def _on_public_route_changed(self, event: RelationEvent) -> None:
-        self.unit.status = MaintenanceStatus("Configuring resources")
+        # This is needed due to how traefik_route lib handles the event
+        self.public_route_requirer._relation = event.relation
 
-        # needed due to how traefik_route lib is handling the event
-        self.public_route._relation = event.relation
-
-        if not self.public_route.is_ready():
-            return
-
-        if event.relation.app is None:
-            # We need to defer the event as this is not handled in the holistic handler
-            # TODO(nsklikas): move this to the holistic handler and remove defer
-            # TODO 2(nsklikas): Fix this in traefik_route lib, this is a bug and the lib should handle
-            # this in the `is_ready` method, like it does for the Provider side.
-            event.defer()
+        if not self.public_route_requirer.is_ready():
             return
 
         if self.unit.is_leader():
-            public_route_config = PublicRouteData.load(self.public_route).config
-            self.public_route.submit_to_traefik(public_route_config)
+            public_route_config = self.public_route_integration.config
+            self.public_route_requirer.submit_to_traefik(public_route_config)
 
-        self._set_client_config()
+            external_base_url = (
+                self.public_route_integration.external_base_url or self.internal_base_url
+            )
+            self.oauth_integration.update_oauth_client_config(saml_provider_url=external_base_url)
 
         self._holistic_handler(event)
 
     def _on_public_route_broken(self, event: RelationBrokenEvent) -> None:
-        self.unit.status = MaintenanceStatus("Configuring resources")
-
         if self.unit.is_leader():
-            logger.info("This app no longer has public-route")
+            logger.info("This application no longer has public-route integration")
 
-        # needed due to how traefik_route lib is handling the event
-        self.public_route._relation = event.relation
+        # This is needed due to how traefik_route lib handles the event
+        self.public_route_requirer._relation = event.relation
 
         self._holistic_handler(event)
 
-    def _on_resource_patch_failed(self, event: K8sResourcePatchFailedEvent) -> None:
-        logger.error("Failed to patch resource constraints: %s", event.message)
-        self.unit.status = BlockedStatus(event.message)
-
-    def _resource_reqs_from_config(self) -> ResourceRequirements:
-        limits = {"cpu": self.model.config.get("cpu"), "memory": self.model.config.get("memory")}
-        requests = {"cpu": "100m", "memory": "200Mi"}
-        return adjust_resource_requirements(limits, requests, adhere_to_requests=True)
-
-    def _on_certificate_transfer_changed(self, event: EventBase) -> None:
+    def _on_oauth_info_changed(self, event: OAuthInfoChangedEvent | OAuthInfoRemovedEvent) -> None:
         self._holistic_handler(event)
 
-    def _ensure_tls(self) -> None:
-        LOCAL_CHARM_CERTIFICATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    def _on_certificate_transfer_available(self, event: CertificatesAvailableEvent) -> None:
+        self._holistic_handler(event)
 
-        if certificates := TLSCertificates.load(self.certificate_transfer_requirer).ca_bundle:
-            LOCAL_CHARM_CERTIFICATES_FILE.write_text(certificates)
-        elif LOCAL_CHARM_CERTIFICATES_FILE.exists():
-            LOCAL_CHARM_CERTIFICATES_FILE.unlink()
+    def _on_collect_status(self, event: CollectStatusEvent) -> None:
+        if not (can_connect := container_connectivity(self)):
+            event.add_status(WaitingStatus("Container is not connected yet"))
 
-        subprocess.run([
-            "update-ca-certificates",
-            "--fresh",
-            "--etccertsdir",
-            LOCAL_CERTIFICATES_PATH,
-            "--localcertsdir",
-            LOCAL_CHARM_CERTIFICATES_PATH,
-        ])
-        self._workload_service.update_ca_certs()
+        if not peer_integration_exists(self):
+            event.add_status(WaitingStatus(f"Missing integration {PEER_INTEGRATION_NAME}"))
 
-    def _holistic_handler(self, event: HookEvent) -> None:
-        if not container_connectivity(self):
-            self.unit.status = WaitingStatus("Container is not connected yet")
+        if not database_integration_exists(self):
+            event.add_status(BlockedStatus(f"Missing integration {DATABASE_INTEGRATION_NAME}"))
+
+        if not database_resource_is_created(self):
+            event.add_status(WaitingStatus("Waiting for database creation"))
+
+        if not public_route_integration_exists(self):
+            event.add_status(BlockedStatus(f"Missing integration {PUBLIC_ROUTE_INTEGRATION_NAME}"))
+
+        if not oauth_integration_exists(self):
+            event.add_status(BlockedStatus(f"Missing integration {OAUTH_INTEGRATION_NAME}"))
+
+        if not certificate_transfer_integration_exists(self):
+            event.add_status(
+                BlockedStatus(f"Missing integration {CERTIFICATE_TRANSFER_INTEGRATION_NAME}")
+            )
+
+        if not saml_bridge_certs_exist(self):
+            event.add_status(BlockedStatus("Missing SAML bridge certificate and/or key file"))
+
+        if can_connect and not self._workload_service.is_running:
+            event.add_status(
+                BlockedStatus(
+                    f"Failed to start the service, please check the {WORKLOAD_CONTAINER} container logs"
+                )
+            )
+
+        event.add_status(self._resources_patch.get_status())
+
+        event.add_status(ActiveStatus())
+
+    def _holistic_handler(self, event: HookEventType) -> None:
+        if not all(condition(self) for condition in NOOP_CONDITIONS):
+            return
+
+        if not all(condition(self) for condition in EVENT_DEFER_CONDITIONS):
             event.defer()
             return
 
-        if self.model.get_relation(PUBLIC_ROUTE_INTEGRATION_NAME):
-            if not PublicRouteData.load(self.public_route).is_ready():
-                self.unit.status = WaitingStatus("Waiting for public ingress")
-                return
-
         try:
-            self._ensure_tls()
-            self._certs_integration.update_certificates()
-        except Error:
-            self.unit.status = BlockedStatus(
-                "Failed to update the TLS certificates, please check the logs"
-            )
-            return
-
-        if not self.oauth.is_client_created():
-            self.unit.status = WaitingStatus("Waiting for OAuth provider relation")
-            return
-
-        if not self.model.relations[DATABASE_INTEGRATION_NAME]:
-            self.unit.status = BlockedStatus(f"Missing integration {DATABASE_INTEGRATION_NAME}")
-            return
-        if not self.database_requirer.is_resource_created():
-            self.unit.status = WaitingStatus("Waiting for database creation")
-            return
-
-        try:
-            self._pebble_service.plan(self._pebble_layer)
+            self._pebble_service.plan(self._pebble_layer, *self.config_files)
         except PebbleServiceError:
             logger.error("Failed to start the service, please check the container logs")
             self.unit.status = BlockedStatus(
                 f"Failed to restart the service, please check the {WORKLOAD_CONTAINER} logs"
             )
-            return
 
-        self.unit.status = ActiveStatus()
-
-    def _set_client_config(self):
-        client_config = ClientConfig(
-            urljoin(self._external_url, REDIRECT_URL),
-            OAUTH_SCOPES,
-            OAUTH_GRANT_TYPES,
-        )
-        self.oauth.update_client_config(client_config)
-
-
-logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     main(IdentitySAMLProviderCharm)
