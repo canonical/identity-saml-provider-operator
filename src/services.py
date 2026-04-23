@@ -2,28 +2,35 @@
 # See LICENSE file for licensing details.
 
 import logging
-from typing import Optional
-from urllib.parse import urljoin
+from collections import ChainMap
 
-from charms.hydra.v0.oauth import OauthProviderConfig
 from ops import Container, ModelError, Unit
+from ops.pebble import ConnectionError as PebbleConnectionError
 from ops.pebble import Layer, LayerDict
 
+from configs import ContainerFile
 from constants import (
     APPLICATION_PORT,
-    CONTAINER_CERTIFICATES_FILE,
-    CONTAINER_BRIDGE_CERT,
-    CONTAINER_BRIDGE_KEY,
-    LOCAL_CERTIFICATES_FILE,
-    REDIRECT_URL,
     WORKLOAD_CONTAINER,
-    WORKLOAD_RUN_COMMAND,
     WORKLOAD_SERVICE,
 )
+from env_vars import DEFAULT_CONTAINER_ENV, EnvVarConvertible
 from exceptions import PebbleServiceError
-from integrations import DatabaseConfig
 
 logger = logging.getLogger(__name__)
+
+PEBBLE_LAYER_DICT = {
+    "summary": "pebble layer",
+    "description": "pebble layer for identity saml provider",
+    "services": {
+        WORKLOAD_SERVICE: {
+            "override": "replace",
+            "summary": "Identity SAML provider service",
+            "command": "/usr/bin/identity-saml-provider",
+            "startup": "disabled",
+        }
+    },
+}
 
 
 class WorkloadService:
@@ -37,28 +44,13 @@ class WorkloadService:
     def is_running(self) -> bool:
         try:
             workload_service = self._container.get_service(WORKLOAD_SERVICE)
-        except ModelError:
+        except (ModelError, PebbleConnectionError):
             return False
 
         return workload_service.is_running()
 
     def open_ports(self) -> None:
         self._unit.open_port(protocol="tcp", port=APPLICATION_PORT)
-
-    def update_ca_certs(self) -> None:
-        ca_certs = LOCAL_CERTIFICATES_FILE.read_text() if LOCAL_CERTIFICATES_FILE.exists() else ""
-        container_cert = str(CONTAINER_CERTIFICATES_FILE)
-
-        current = (
-            self._container.pull(container_cert).read()
-            if self._container.exists(container_cert)
-            else ""
-        )
-
-        if current == ca_certs:
-            return
-
-        self._container.push(container_cert, ca_certs, make_dirs=True)
 
 
 class PebbleService:
@@ -67,59 +59,37 @@ class PebbleService:
     def __init__(self, unit: Unit) -> None:
         self._unit = unit
         self._container = unit.get_container(WORKLOAD_CONTAINER)
+        self._layer_dict: LayerDict = PEBBLE_LAYER_DICT
 
-    def _restart_service(self) -> None:
-        if not self._container.get_service(WORKLOAD_SERVICE).is_running():
-            self._container.start(WORKLOAD_SERVICE)
-        else:
-            self._container.replan()
-
-    def plan(self, layer: Layer) -> None:
+    def plan(self, layer: Layer, *container_files: ContainerFile) -> None:
         self._container.add_layer(WORKLOAD_SERVICE, layer, combine=True)
 
+        restart_needed = False
+        for container_file in container_files:
+            current = container_file.from_workload_container(self._container)
+
+            if container_file != current:
+                self._container.push(
+                    container_file.file_path, container_file.content, make_dirs=True
+                )
+                restart_needed = True
+
         try:
-            self._restart_service()
+            if restart_needed:
+                self._container.restart(WORKLOAD_SERVICE)
+            else:
+                self._container.replan()
         except Exception as e:
-            raise PebbleServiceError(f"Pebble failed to restart the workload service. Error: {e}")
+            raise PebbleServiceError(
+                f"Pebble failed to restart the workload service. Error: {e}"
+            ) from e
 
-    def render_pebble_layer(
-        self,
-        oauth: Optional[OauthProviderConfig] = None,
-        database: Optional[DatabaseConfig] = None,
-        public_route_url: str = None,
-    ) -> Layer:
-        hydra_oath_url = oauth.issuer_url if oauth else ""
-        external_url = str(public_route_url) if public_route_url else ""
-        client_id = oauth.client_id if oauth else ""
-        client_secret = oauth.client_secret if oauth else ""
-        redirect_url = urljoin(external_url, REDIRECT_URL) if external_url else ""
-
-        container = {
-            "override": "replace",
-            "summary": "Identity SAML provider service",
-            "command": (WORKLOAD_RUN_COMMAND),
-            "startup": "disabled",
-            "environment": {
-                "SAML_PROVIDER_HYDRA_PUBLIC_URL": hydra_oath_url,
-                "SAML_PROVIDER_BRIDGE_BASE_PORT": str(APPLICATION_PORT),
-                "SAML_PROVIDER_DB_HOST": database.host if database else "",
-                "SAML_PROVIDER_DB_PORT": str(database.port) if database else "",
-                "SAML_PROVIDER_DB_NAME": database.database if database else "",
-                "SAML_PROVIDER_DB_USER": database.username if database else "",
-                "SAML_PROVIDER_DB_PASSWORD": database.password if database else "",
-                "SAML_PROVIDER_HYDRA_CA_CERT_PATH": str(CONTAINER_CERTIFICATES_FILE),
-                "SAML_PROVIDER_CERT_PATH": str(CONTAINER_BRIDGE_CERT),
-                "SAML_PROVIDER_KEY_PATH": str(CONTAINER_BRIDGE_KEY),
-                "SAML_PROVIDER_BRIDGE_BASE_URL": external_url,
-                "SAML_PROVIDER_OIDC_CLIENT_ID": client_id,
-                "SAML_PROVIDER_OIDC_CLIENT_SECRET": client_secret,
-                "SAML_PROVIDER_OIDC_REDIRECT_URL": redirect_url,
-            },
+    def render_pebble_layer(self, *env_var_sources: EnvVarConvertible) -> Layer:
+        updated_env_vars = ChainMap(*(source.to_env_vars() for source in env_var_sources))  # type: ignore
+        env_vars = {
+            **DEFAULT_CONTAINER_ENV,
+            **updated_env_vars,
         }
+        self._layer_dict["services"][WORKLOAD_SERVICE]["environment"] = env_vars
 
-        pebble_layer: LayerDict = {
-            "summary": "identity-saml-provider layer",
-            "description": "pebble config layer for identity platform saml provider",
-            "services": {WORKLOAD_CONTAINER: container},
-        }
-        return Layer(pebble_layer)
+        return Layer(self._layer_dict)

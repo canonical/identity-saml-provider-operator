@@ -69,7 +69,7 @@ convention = "google"
 
 [tool.mypy]
 pretty = true
-mypy_path = "./src:./lib/"
+mypy_path = "./src"
 follow_imports = "silent"
 warn_redundant_casts = true
 warn_unused_configs = true
@@ -84,5 +84,5 @@ disallow_untyped_defs = true
 
 # Ignore libraries that do not have type hint nor stubs
 [[tool.mypy.overrides]]
-module = ["ops.*", "pytest.*", "urllib3.*", "jinja2.*", "lightkube.*", "pytest_mock.*"]
+module = ["ops.*", "pytest.*", "urllib3.*", "jinja2.*", "lightkube.*", "pytest_mock.*", "charms.*"]
 ignore_missing_imports = true

@@ -1,5 +1,5 @@
 {% set identifier = "{}-{}".format(model, app) %}
-{% set public_svc = "http://{}.{}.svc.cluster.local:{}".format(app, model, public_port) %}
+{% set public_svc = "http://{}.{}.svc.cluster.local:{}".format(app, model, port) %}
 {
     "http":{
         "routers":{
@@ -26,7 +26,7 @@
                         }
                     ]
                 }
-            }            
+            }
         },
         "services":{
             "juju-{{ identifier }}-public-api-service":{

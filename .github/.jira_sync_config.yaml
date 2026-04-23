@@ -12,7 +12,7 @@ settings:
   add_gh_comment: true
   sync_description: true
   sync_comments: true
-  epic_key: "IAM-1775"
+  epic_key: "IAM-471"
   label_mapping:
     enhancement: Story
     bug: Bug
