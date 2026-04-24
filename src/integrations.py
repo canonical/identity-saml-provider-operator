@@ -23,6 +23,7 @@ from constants import (
     OAUTH_SCOPES,
     OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH,
     PEER_INTEGRATION_NAME,
+    POSTGRESQL_DSN_TEMPLATE,
 )
 from env_vars import EnvVars
 
@@ -72,6 +73,15 @@ class DatabaseConfig:
     username: str = ""
     password: str = ""
     migration_version: str = ""
+
+    @property
+    def dsn(self) -> str:
+        return POSTGRESQL_DSN_TEMPLATE.substitute(
+            username=self.username,
+            password=self.password,
+            endpoint=f"{self.host}:{self.port}",
+            database=self.database,
+        )
 
     def to_env_vars(self) -> EnvVars:
         return {

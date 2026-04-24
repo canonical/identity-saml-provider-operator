@@ -2,9 +2,13 @@
 # See LICENSE file for licensing details.
 
 from pathlib import Path
+from string import Template
 
 # Charm constants
 DATABASE_NAME = "saml_provider"
+POSTGRESQL_DSN_TEMPLATE = Template(
+    "postgres://$username:$password@$endpoint/$database?sslmode=disable"
+)
 WORKLOAD_CONTAINER = "identity-saml-provider"
 WORKLOAD_SERVICE = "identity-saml-provider"
 CERTS_DIR_PATH = Path("/etc/saml")

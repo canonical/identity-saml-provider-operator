@@ -8,6 +8,7 @@ from ops import Container, ModelError, Unit
 from ops.pebble import ConnectionError as PebbleConnectionError
 from ops.pebble import Layer, LayerDict
 
+from cli import CommandLine
 from configs import ContainerFile
 from constants import (
     APPLICATION_PORT,
@@ -26,7 +27,7 @@ PEBBLE_LAYER_DICT = {
         WORKLOAD_SERVICE: {
             "override": "replace",
             "summary": "Identity SAML provider service",
-            "command": "/usr/bin/identity-saml-provider",
+            "command": "/usr/bin/identity-saml-provider serve",
             "startup": "disabled",
         }
     },
@@ -37,8 +38,33 @@ class WorkloadService:
     """Workload service abstraction running in a Juju unit."""
 
     def __init__(self, unit: Unit) -> None:
+        self._version = ""
+
         self._unit: Unit = unit
         self._container: Container = unit.get_container(WORKLOAD_CONTAINER)
+        self._cli = CommandLine(self._container)
+
+    @property
+    def application_version(self) -> str:
+        self._version = self._cli.get_application_version() or ""
+        return self._version
+
+    @property
+    def version(self) -> str:
+        return self.application_version
+
+    @version.setter
+    def version(self, new_version: str) -> None:
+        if not new_version:
+            return
+
+        try:
+            self._unit.set_workload_version(new_version)
+        except Exception as e:
+            logger.error("Failed to set workload version: %s", e)
+            return
+
+        self._version = new_version
 
     @property
     def is_running(self) -> bool:

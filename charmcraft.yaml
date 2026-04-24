@@ -67,6 +67,15 @@ config:
         for the "limits" portion of the resource requirements.
       type: string
 
+actions:
+  run-migration:
+    description: Run database migrations.
+    params:
+      timeout:
+        description: Timeout (seconds) for the migration process.
+        type: number
+        default: 120
+
 parts:
   charm:
     plugin: charm
