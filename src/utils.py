@@ -64,6 +64,10 @@ def database_resource_is_created(charm: "IdentitySAMLProviderCharm") -> bool:
     return charm.database_requirer.is_resource_created()
 
 
+def migration_is_ready(charm: "IdentitySAMLProviderCharm") -> bool:
+    return not charm.migration_needed
+
+
 def saml_bridge_certs_exist(charm: CharmBase) -> bool:
     container = charm.unit.get_container(WORKLOAD_CONTAINER)
     return (
@@ -79,6 +83,7 @@ NOOP_CONDITIONS: tuple[Condition, ...] = (
     database_integration_exists,
     database_resource_is_created,
     certificate_transfer_integration_exists,
+    migration_is_ready,
 )
 
 # Condition failure causes early return with corresponding event deferred

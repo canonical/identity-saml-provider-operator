@@ -37,11 +37,12 @@ from ops import (
     StartEvent,
     UpdateStatusEvent,
 )
-from ops.charm import CharmBase, CollectStatusEvent, SecretChangedEvent
+from ops.charm import ActionEvent, CharmBase, CollectStatusEvent, SecretChangedEvent
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
 from ops.pebble import Layer
 
+from cli import CommandLine
 from configs import (
     CharmConfig,
     ContainerFile,
@@ -64,7 +65,7 @@ from constants import (
     PUBLIC_ROUTE_INTEGRATION_NAME,
     WORKLOAD_CONTAINER,
 )
-from exceptions import PebbleServiceError
+from exceptions import MigrationError, PebbleServiceError
 from integrations import (
     DatabaseConfig,
     OAuthIntegration,
@@ -80,6 +81,7 @@ from utils import (
     container_connectivity,
     database_integration_exists,
     database_resource_is_created,
+    migration_is_ready,
     oauth_integration_exists,
     peer_integration_exists,
     public_route_integration_exists,
@@ -101,6 +103,7 @@ class IdentitySAMLProviderCharm(CharmBase):
         self._container = self.unit.get_container(WORKLOAD_CONTAINER)
         self._workload_service = WorkloadService(self.unit)
         self._pebble_service = PebbleService(self.unit)
+        self._cli = CommandLine(self._container)
 
         # Lifecycle event handlers
         self.framework.observe(self.on.leader_elected, self._on_leader_elected)
@@ -188,6 +191,9 @@ class IdentitySAMLProviderCharm(CharmBase):
             resource_reqs_func=KubernetesResources(self.config),
         )
 
+        # Actions
+        self.framework.observe(self.on.run_migration_action, self._on_run_migration_action)
+
     @property
     def internal_base_url(self) -> str:
         return f"http://{self.app.name}.{self.model.name}.svc.cluster.local:{APPLICATION_PORT}"
@@ -200,6 +206,17 @@ class IdentitySAMLProviderCharm(CharmBase):
             scope=OAUTH_SCOPES,
             grant_types=OAUTH_GRANT_TYPES,
         )
+
+    @property
+    def migration_needed(self) -> bool:
+        if not peer_integration_exists(self):
+            return False
+
+        if not container_connectivity(self):
+            return False
+
+        database_config = DatabaseConfig.load(self.database_requirer)
+        return self.peer_data[database_config.migration_version] != self._workload_service.version
 
     @property
     def _pebble_layer(self) -> Layer:
@@ -237,6 +254,8 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         self._workload_service.open_ports()
 
+        self._workload_service.version = self._workload_service.application_version
+
         self._holistic_handler(event)
 
     def _on_update_status(self, event: UpdateStatusEvent) -> None:
@@ -254,11 +273,30 @@ class IdentitySAMLProviderCharm(CharmBase):
             event.defer()
             return
 
+        if not peer_integration_exists(self):
+            self.unit.status = WaitingStatus(f"Missing integration {PEER_INTEGRATION_NAME}")
+            event.defer()
+            return
+
+        if not self.migration_needed:
+            self._holistic_handler(event)
+            return
+
         if not self.unit.is_leader():
             logger.info(
                 "Unit does not have leadership. Wait for leader unit to run the migration."
             )
+            event.defer()
             return
+
+        try:
+            self._cli.migrate(DatabaseConfig.load(self.database_requirer).dsn)
+        except MigrationError:
+            logger.error("Auto migration job failed. Please use the run-migration action")
+            return
+
+        migration_version = DatabaseConfig.load(self.database_requirer).migration_version
+        self.peer_data[migration_version] = self._workload_service.version
 
         self._holistic_handler(event)
 
@@ -301,7 +339,7 @@ class IdentitySAMLProviderCharm(CharmBase):
     def _on_certificate_transfer_available(self, event: CertificatesAvailableEvent) -> None:
         self._holistic_handler(event)
 
-    def _on_collect_status(self, event: CollectStatusEvent) -> None:
+    def _on_collect_status(self, event: CollectStatusEvent) -> None:  # noqa: C901
         if not (can_connect := container_connectivity(self)):
             event.add_status(WaitingStatus("Container is not connected yet"))
 
@@ -324,6 +362,13 @@ class IdentitySAMLProviderCharm(CharmBase):
             event.add_status(
                 BlockedStatus(f"Missing integration {CERTIFICATE_TRANSFER_INTEGRATION_NAME}")
             )
+
+        is_migration_ready = migration_is_ready(self)
+        if self.unit.is_leader() and not is_migration_ready:
+            event.add_status(WaitingStatus("Waiting for database migration"))
+
+        if not self.unit.is_leader() and not is_migration_ready:
+            event.add_status(WaitingStatus("Waiting for leader unit to run the migration"))
 
         if not saml_bridge_certs_exist(self):
             event.add_status(BlockedStatus("Missing SAML bridge certificate and/or key file"))
@@ -354,6 +399,35 @@ class IdentitySAMLProviderCharm(CharmBase):
             self.unit.status = BlockedStatus(
                 f"Failed to restart the service, please check the {WORKLOAD_CONTAINER} logs"
             )
+
+    def _on_run_migration_action(self, event: ActionEvent) -> None:
+        if not self.unit.is_leader():
+            event.fail("Only the leader unit can run the database migration")
+            return
+
+        if not container_connectivity(self):
+            event.fail("Container is not connected yet")
+            return
+
+        if not peer_integration_exists(self):
+            event.fail("Peer integration is not ready")
+            return
+
+        event.log("Started migrating the database")
+
+        timeout = float(event.params.get("timeout", 120))
+        database_config = DatabaseConfig.load(self.database_requirer)
+        try:
+            self._cli.migrate(dsn=database_config.dsn, timeout=timeout)
+        except MigrationError as err:
+            event.fail(f"Database migration failed: {err}")
+            return
+        else:
+            event.log("Successfully migrated the database")
+
+        migration_version = database_config.migration_version
+        self.peer_data[migration_version] = self._workload_service.version
+        event.log("Successfully updated migration version")
 
 
 if __name__ == "__main__":
