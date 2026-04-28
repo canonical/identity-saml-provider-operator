@@ -1,5 +1,5 @@
 cosl >= 0.0.26
 Jinja2 == 3.1.6
 lightkube == 0.19.0
-ops == 3.5.0
+ops ==3.7.0
 pydantic ~= 2.0
