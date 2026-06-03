@@ -9,6 +9,7 @@ from typing import Any, Iterable, TypeVar
 
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
     CertificatesAvailableEvent,
+    CertificatesRemovedEvent,
     CertificateTransferRequires,
 )
 from charms.data_platform_libs.v0.data_interfaces import (
@@ -77,7 +78,6 @@ from services import PebbleService, WorkloadService
 from utils import (
     EVENT_DEFER_CONDITIONS,
     NOOP_CONDITIONS,
-    certificate_transfer_integration_exists,
     container_connectivity,
     database_integration_exists,
     database_resource_is_created,
@@ -183,6 +183,10 @@ class IdentitySAMLProviderCharm(CharmBase):
             self.certificate_transfer_requirer.on.certificate_set_updated,
             self._on_certificate_transfer_available,
         )
+        self.framework.observe(
+            self.certificate_transfer_requirer.on.certificates_removed,
+            self._on_certificate_transfer_broken,
+        )
 
         # Kubernetes resources management
         self._resources_patch = KubernetesComputeResourcesPatch(
@@ -221,11 +225,13 @@ class IdentitySAMLProviderCharm(CharmBase):
     @property
     def _pebble_layer(self) -> Layer:
         database_config = DatabaseConfig.load(self.database_requirer)
+        hydra_ca = TransferredCertificates.load(self.certificate_transfer_requirer)
 
         return self._pebble_service.render_pebble_layer(
             database_config,
             self.public_route_integration,
             self.oauth_integration,
+            hydra_ca,
         )
 
     @property
@@ -339,6 +345,9 @@ class IdentitySAMLProviderCharm(CharmBase):
     def _on_certificate_transfer_available(self, event: CertificatesAvailableEvent) -> None:
         self._holistic_handler(event)
 
+    def _on_certificate_transfer_broken(self, event: CertificatesRemovedEvent) -> None:
+        self._holistic_handler(event)
+
     def _on_collect_status(self, event: CollectStatusEvent) -> None:  # noqa: C901
         if not (can_connect := container_connectivity(self)):
             event.add_status(WaitingStatus("Container is not connected yet"))
@@ -357,11 +366,6 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         if not oauth_integration_exists(self):
             event.add_status(BlockedStatus(f"Missing integration {OAUTH_INTEGRATION_NAME}"))
-
-        if not certificate_transfer_integration_exists(self):
-            event.add_status(
-                BlockedStatus(f"Missing integration {CERTIFICATE_TRANSFER_INTEGRATION_NAME}")
-            )
 
         is_migration_ready = migration_is_ready(self)
         if self.unit.is_leader() and not is_migration_ready:

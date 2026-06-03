@@ -30,7 +30,7 @@ Deploy dependency charms:
 ```shell
 juju deploy postgresql-k8s --channel 14/stable --trust
 juju deploy traefik-k8s --channel latest/stable --trust
-juju deploy self-signed-certificates-operator --channel 1/stable --trust
+juju deploy self-signed-certificates --channel 1/stable --trust
 ```
 
 Please also deploy the
@@ -43,6 +43,12 @@ integrations:
 juju integrate identity-saml-provider-operator postgresql-k8s
 juju integrate identity-saml-provider-operator traefik-k8s:traefik-route
 juju integrate identity-saml-provider-operator hydra:oauth
+```
+
+Optionally, integrate with a CA provider for custom TLS
+certificates to Hydra:
+
+```shell
 juju integrate identity-saml-provider-operator self-signed-certificates:send-ca-cert
 ```
 
@@ -76,11 +82,13 @@ Identity SAML provider charm requires an integration with
 [hydra-operator](https://github.com/canonical/hydra-operator)
 for OIDC authentication using the `oauth` interface.
 
-### Certificate Transfer
+### Certificate Transfer (Optional)
 
-Identity SAML provider charm requires an integration with a
-CA provider charm for TLS certificate management. In the
-example above, we use
+Identity SAML provider charm supports an optional integration
+with a CA provider charm for TLS certificate management when
+communicating with Hydra. When this integration is present,
+the charm configures the workload to use the provided CA
+certificates. In the example above, we use
 [self-signed-certificates](https://github.com/canonical/self-signed-certificates-operator).
 
 ## Contributing
