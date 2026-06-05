@@ -19,6 +19,10 @@ on:
         default: ''
         type: string
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   publish:
     name: Publish Charm
