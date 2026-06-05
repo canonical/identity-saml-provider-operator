@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/canonical/identity-saml-provider-operator/compare/v1.0.0...v1.0.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* fix the permission issue in charm publish ([a653416](https://github.com/canonical/identity-saml-provider-operator/commit/a653416e56aa01027e2f8ef036f82405330370f0))
+* fix the permission issue in charm publish ([3212ea8](https://github.com/canonical/identity-saml-provider-operator/commit/3212ea801715a9c4921b9c053a74a1c1c8afbe4e))
+
 ## 1.0.0 (2026-06-05)
 
 
