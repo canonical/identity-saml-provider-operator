@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 from ops import CharmBase
 
 from constants import (
-    CERTIFICATE_TRANSFER_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     OAUTH_INTEGRATION_NAME,
     PEER_INTEGRATION_NAME,
@@ -51,9 +50,6 @@ peer_integration_exists = integration_existence(PEER_INTEGRATION_NAME)
 database_integration_exists = integration_existence(DATABASE_INTEGRATION_NAME)
 public_route_integration_exists = integration_existence(PUBLIC_ROUTE_INTEGRATION_NAME)
 oauth_integration_exists = integration_existence(OAUTH_INTEGRATION_NAME)
-certificate_transfer_integration_exists = integration_existence(
-    CERTIFICATE_TRANSFER_INTEGRATION_NAME
-)
 
 
 def container_connectivity(charm: CharmBase) -> bool:
@@ -82,7 +78,6 @@ NOOP_CONDITIONS: tuple[Condition, ...] = (
     peer_integration_exists,
     database_integration_exists,
     database_resource_is_created,
-    certificate_transfer_integration_exists,
     migration_is_ready,
 )
 

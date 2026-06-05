@@ -28,7 +28,7 @@ resources:
   oci-image:
     type: oci-image
     description: OCI image for Identity SAML Provider
-    upstream-source: ghcr.io/canonical/identity-saml-provider:v0.1.2
+    upstream-source: ghcr.io/canonical/identity-saml-provider:v0.1.6
 
 requires:
   database:
@@ -46,7 +46,7 @@ requires:
   receive-ca-cert:
     interface: certificate_transfer
     limit: 1
-    optional: false
+    optional: true
 
 config:
   options:

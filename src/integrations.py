@@ -19,6 +19,7 @@ from ops import Model
 from configs import ServiceConfigs
 from constants import (
     APPLICATION_PORT,
+    HYDRA_CA_CERT,
     OAUTH_GRANT_TYPES,
     OAUTH_SCOPES,
     OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH,
@@ -192,6 +193,14 @@ class TransferredCertificates:
         ca_bundle = "\n".join(sorted(ca_certs))
 
         return cls(ca_bundle=ca_bundle)
+
+    def to_env_vars(self) -> EnvVars:
+        if not self.ca_bundle:
+            return {}
+
+        return {
+            "SAML_PROVIDER_HYDRA_CA_CERT_PATH": str(HYDRA_CA_CERT),
+        }
 
     def to_service_configs(self) -> ServiceConfigs:
         return {
