@@ -4,7 +4,7 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, KeysView, Self, TypeAlias
+from typing import Any, KeysView, TypeAlias
 from urllib.parse import urlparse
 
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
@@ -15,6 +15,7 @@ from charms.hydra.v0.oauth import ClientConfig, OAuthRequirer
 from charms.traefik_k8s.v0.traefik_route import TraefikRouteRequirer
 from jinja2 import Template
 from ops import Model
+from typing_extensions import Self
 
 from configs import ServiceConfigs
 from constants import (
