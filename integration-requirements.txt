@@ -1,0 +1,7 @@
+-r requirements.txt
+cryptography
+jubilant
+pytest
+pytest-jubilant>=2,<3
+requests
+tenacity
