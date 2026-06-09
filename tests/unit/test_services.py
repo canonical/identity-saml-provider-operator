@@ -1,7 +1,6 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -107,7 +106,6 @@ class TestPebbleService:
         new_container_file: MagicMock,
     ) -> None:
         layer = MagicMock()
-        cast(MagicMock, new_container_file.__eq__).return_value = True
 
         with patch.object(
             new_container_file, "from_workload_container", return_value=new_container_file
@@ -127,7 +125,6 @@ class TestPebbleService:
         existing_container_file: MagicMock,
     ) -> None:
         layer = MagicMock()
-        cast(MagicMock, new_container_file.__eq__).return_value = True
 
         with patch.object(
             new_container_file, "from_workload_container", return_value=existing_container_file
@@ -161,7 +158,6 @@ class TestPebbleService:
         existing_container_file: MagicMock,
     ) -> None:
         layer = MagicMock()
-        cast(MagicMock, new_container_file.__eq__).return_value = False
         mocked_container.restart.side_effect = Exception("error")
 
         with (
