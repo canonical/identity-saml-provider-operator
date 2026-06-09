@@ -1,4 +1,4 @@
-# Copyright 2025 Canonical Ltd.
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 output "app_name" {
@@ -6,19 +6,17 @@ output "app_name" {
   value       = juju_application.application.name
 }
 
-//TODO:
 output "requires" {
   description = "The Juju integrations that the charm requires"
   value = {
-    http-ingress = "http-ingress"
-    database     = "database"
-    oauth        = "oauth",
-    logging      = "logging"
-    certificates = "certificates"
+    database             = "database"
+    oauth                = "oauth",
+    public-route         = "public-route",
+    certificate-transfer = "receive-ca-cert"
+    logging              = "logging"
   }
 }
 
-//TODO:
 output "provides" {
   description = "The Juju integrations that the charm provides"
   value = {
