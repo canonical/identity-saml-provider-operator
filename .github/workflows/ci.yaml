@@ -20,3 +20,22 @@ jobs:
   linting:
     name: Linting
     uses: canonical/identity-team/.github/workflows/_charm-linting.yaml@356ff61bd885e4147cc22c6eea64e4d806c889da # v1.11.3
+
+  unit-test:
+    name: Unit Tests
+    uses: canonical/identity-team/.github/workflows/_charm-tests-unit.yaml@356ff61bd885e4147cc22c6eea64e4d806c889da # v1.11.3
+    needs:
+      - linting
+
+  integration-test:
+    name: Integration Tests
+    uses: canonical/identity-team/.github/workflows/_charm-tests-integration.yaml@main
+    with:
+      container-name: "identity-saml-provider"
+      use-charmcraftcache: true
+      node-size: large
+      pytest-model-option: '--juju-model'
+      juju-model-name: 'testing'
+    needs:
+      - linting
+      - unit-test
