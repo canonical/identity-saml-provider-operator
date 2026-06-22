@@ -16,6 +16,7 @@ from ops.pebble import PathError
 from typing_extensions import Self
 
 from constants import HYDRA_CA_CERT, SAML_BRIDGE_CERT, SAML_BRIDGE_KEY
+from env_vars import EnvVars
 
 logger = logging.getLogger(__name__)
 
@@ -150,9 +151,11 @@ class JujuSecretResolver:
 class CharmConfig:
     """A class representing the data source of charm configurations."""
 
-    CONFIGS: set[str] = set()
+    CONFIGS: set[str] = {
+        "dev",
+    }
 
-    SECRET_CONFIGS = {
+    SECRET_CONFIGS: set[str] = {
         "saml_credentials",
     }
 
@@ -169,6 +172,12 @@ class CharmConfig:
         }
 
         return {**configs, **secret_configs}
+
+    def to_env_vars(self) -> EnvVars:
+        dev = self._config.get("dev", False)
+        return {
+            "SAML_PROVIDER_DEV_MODE": str(dev).lower(),
+        }
 
 
 class KubernetesResources:
