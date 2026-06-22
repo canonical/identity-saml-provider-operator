@@ -17,25 +17,12 @@ on:
       - "terraform/**"
 
 jobs:
-  linting:
-    name: Linting
-    uses: canonical/identity-team/.github/workflows/_charm-linting.yaml@5830f3e6723de07cb5b7ccb6c84031d8b2964c62 # v1.11.4
-
-  unit-test:
-    name: Unit Tests
-    uses: canonical/identity-team/.github/workflows/_charm-tests-unit.yaml@5830f3e6723de07cb5b7ccb6c84031d8b2964c62 # v1.11.4
-    needs:
-      - linting
-
-  integration-test:
-    name: Integration Tests
-    uses: canonical/identity-team/.github/workflows/_charm-tests-integration.yaml@main
+  tests:
+    name: CI
+    uses: canonical/identity-team/.github/workflows/charm-pull-request.yaml@5830f3e6723de07cb5b7ccb6c84031d8b2964c62 # v1.11.4
     with:
       container-name: "identity-saml-provider"
       use-charmcraftcache: true
       node-size: large
       pytest-model-option: '--juju-model'
       juju-model-name: 'testing'
-    needs:
-      - linting
-      - unit-test
