@@ -29,7 +29,7 @@ jobs:
 
   integration-test:
     name: Integration Tests
-    uses: canonical/identity-team/.github/workflows/_charm-tests-integration.yaml@main
+    uses: canonical/identity-team/.github/workflows/_charm-tests-integration.yaml@7e8ca2f1ef493320dca603bd7ba660650a7c5d18 # main
     with:
       container-name: "identity-saml-provider"
       use-charmcraftcache: true
