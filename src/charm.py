@@ -232,6 +232,7 @@ class IdentitySAMLProviderCharm(CharmBase):
             self.public_route_integration,
             self.oauth_integration,
             hydra_ca,
+            self.charm_config,
         )
 
     @property

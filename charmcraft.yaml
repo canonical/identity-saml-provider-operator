@@ -50,6 +50,13 @@ requires:
 
 config:
   options:
+    dev:
+      description: |
+        Enable development mode for the workload application.
+        When set to true, the application runs with development-mode features enabled.
+        WARNING: Do not set to true in production environments.
+      type: boolean
+      default: false
     saml_credentials:
       type: secret
       required: true
