@@ -1,21 +1,18 @@
 <!-- BEGIN_TF_DOCS -->
-# Terraform Module for identity-saml-provider-operator
 
-This is a Terraform module facilitating the deployment of the identity-saml-provider
-charm using the Juju Terraform provider.
 ---
 ## Providers
 
 | Name | Version |
 |------|---------|
-| <a name="provider_juju"></a> [juju](#provider\_juju) | ~> 1.0.0 |
+| <a name="provider_juju"></a> [juju](#provider\_juju) | >= 1.0.0, < 3.0.0 |
 ---
 ## Requirements
 
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5.0 |
-| <a name="requirement_juju"></a> [juju](#requirement\_juju) | ~> 1.0.0 |
+| <a name="requirement_juju"></a> [juju](#requirement\_juju) | >= 1.0.0, < 3.0.0 |
 ---
 ## Inputs
 
