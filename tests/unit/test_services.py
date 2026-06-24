@@ -5,9 +5,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from ops import ModelError
+from ops.pebble import CheckStatus
 
 from configs import HydraCertificates
-from constants import APPLICATION_PORT, HYDRA_CA_CERT, WORKLOAD_SERVICE
+from constants import (
+    APPLICATION_PORT,
+    HYDRA_CA_CERT,
+    WORKLOAD_ALIVE_CHECK,
+    WORKLOAD_READY_CHECK,
+    WORKLOAD_SERVICE,
+)
 from env_vars import DEFAULT_CONTAINER_ENV, EnvVarConvertible
 from exceptions import PebbleServiceError
 from services import PebbleService, WorkloadService
@@ -56,6 +63,9 @@ class TestWorkloadService:
         self, mocked_container: MagicMock, workload_service: WorkloadService
     ) -> None:
         mocked_service_info = MagicMock(is_running=MagicMock(return_value=True))
+        mocked_container.get_checks.return_value = {
+            WORKLOAD_ALIVE_CHECK: MagicMock(status=CheckStatus.UP),
+        }
 
         with patch.object(
             mocked_container, "get_service", return_value=mocked_service_info
@@ -64,6 +74,7 @@ class TestWorkloadService:
 
         assert is_running is True
         get_service.assert_called_once_with(WORKLOAD_SERVICE)
+        mocked_container.get_checks.assert_called_once_with(WORKLOAD_ALIVE_CHECK)
 
     def test_is_running_when_workload_service_not_found(
         self, mocked_container: MagicMock, workload_service: WorkloadService
@@ -72,6 +83,77 @@ class TestWorkloadService:
             is_running = workload_service.is_running
 
         assert is_running is False
+
+    def test_is_running_when_service_not_running(
+        self, mocked_container: MagicMock, workload_service: WorkloadService
+    ) -> None:
+        mocked_service_info = MagicMock(is_running=MagicMock(return_value=False))
+
+        with patch.object(mocked_container, "get_service", return_value=mocked_service_info):
+            assert workload_service.is_running is False
+        mocked_container.get_checks.assert_not_called()
+
+    def test_is_running_when_alive_check_down(
+        self, mocked_container: MagicMock, workload_service: WorkloadService
+    ) -> None:
+        mocked_service_info = MagicMock(is_running=MagicMock(return_value=True))
+        mocked_container.get_checks.return_value = {
+            WORKLOAD_ALIVE_CHECK: MagicMock(status=CheckStatus.DOWN),
+        }
+
+        with patch.object(mocked_container, "get_service", return_value=mocked_service_info):
+            assert workload_service.is_running is False
+
+    def test_is_running_when_alive_check_lookup_fails(
+        self, mocked_container: MagicMock, workload_service: WorkloadService
+    ) -> None:
+        mocked_service_info = MagicMock(is_running=MagicMock(return_value=True))
+        mocked_container.get_checks.side_effect = ModelError
+
+        with patch.object(mocked_container, "get_service", return_value=mocked_service_info):
+            assert workload_service.is_running is False
+
+    def test_is_running_when_alive_check_missing(
+        self, mocked_container: MagicMock, workload_service: WorkloadService
+    ) -> None:
+        mocked_service_info = MagicMock(is_running=MagicMock(return_value=True))
+        mocked_container.get_checks.return_value = {}
+
+        with patch.object(mocked_container, "get_service", return_value=mocked_service_info):
+            assert workload_service.is_running is True
+
+    def test_is_ready_when_all_checks_up(
+        self, mocked_container: MagicMock, workload_service: WorkloadService
+    ) -> None:
+        mocked_container.get_checks.return_value = {
+            WORKLOAD_READY_CHECK: MagicMock(status=CheckStatus.UP),
+        }
+
+        assert workload_service.is_ready is True
+        mocked_container.get_checks.assert_called_once_with(WORKLOAD_READY_CHECK)
+
+    def test_is_ready_when_any_check_down(
+        self, mocked_container: MagicMock, workload_service: WorkloadService
+    ) -> None:
+        mocked_container.get_checks.return_value = {
+            WORKLOAD_READY_CHECK: MagicMock(status=CheckStatus.DOWN),
+        }
+
+        assert workload_service.is_ready is False
+
+    def test_is_ready_when_no_ready_checks_defined(
+        self, mocked_container: MagicMock, workload_service: WorkloadService
+    ) -> None:
+        mocked_container.get_checks.return_value = {}
+
+        assert workload_service.is_ready is True
+
+    def test_is_ready_when_lookup_fails(
+        self, mocked_container: MagicMock, workload_service: WorkloadService
+    ) -> None:
+        mocked_container.get_checks.side_effect = ModelError
+
+        assert workload_service.is_ready is False
 
     def test_open_ports(self, mocked_unit: MagicMock, workload_service: WorkloadService) -> None:
         workload_service.open_ports()

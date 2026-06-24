@@ -222,6 +222,16 @@ class TestPublicRouteIntegration:
             "loadBalancer"
         ]["servers"][0]["url"] == (f"http://saml.test-model.svc.cluster.local:{APPLICATION_PORT}")
 
+        expected_rule = "PathPrefix(`/saml`)"
+        assert (
+            config["http"]["routers"]["juju-test-model-saml-public-api-router-saml"]["rule"]
+            == expected_rule
+        )
+        assert (
+            config["http"]["routers"]["juju-test-model-saml-public-api-router-saml-tls"]["rule"]
+            == expected_rule
+        )
+
     def test_to_env_vars_with_external_host(
         self,
         mocked_requirer: MagicMock,

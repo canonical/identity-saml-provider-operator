@@ -11,6 +11,8 @@ POSTGRESQL_DSN_TEMPLATE = Template(
 )
 WORKLOAD_CONTAINER = "identity-saml-provider"
 WORKLOAD_SERVICE = "identity-saml-provider"
+WORKLOAD_ALIVE_CHECK = "alive"
+WORKLOAD_READY_CHECK = "ready"
 CERTS_DIR_PATH = Path("/etc/saml")
 HYDRA_CA_CERT = CERTS_DIR_PATH / "hydra-ca.pem"
 SAML_BRIDGE_CERT = CERTS_DIR_PATH / "bridge.crt"

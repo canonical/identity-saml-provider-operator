@@ -378,12 +378,16 @@ class IdentitySAMLProviderCharm(CharmBase):
         if not saml_bridge_certs_exist(self):
             event.add_status(BlockedStatus("Missing SAML bridge certificate and/or key file"))
 
-        if can_connect and not self._workload_service.is_running:
+        is_workload_running = can_connect and self._workload_service.is_running
+        if can_connect and not is_workload_running:
             event.add_status(
                 BlockedStatus(
                     f"Failed to start the service, please check the {WORKLOAD_CONTAINER} container logs"
                 )
             )
+
+        if is_workload_running and not self._workload_service.is_ready:
+            event.add_status(WaitingStatus("Workload service is not ready yet"))
 
         event.add_status(self._resources_patch.get_status())
 
