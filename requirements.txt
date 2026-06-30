@@ -2,5 +2,5 @@ cosl >= 0.0.26
 Jinja2 == 3.1.6
 jsonschema
 lightkube ==0.21.0
-ops ==3.7.1
+ops ==3.8.0
 pydantic ~= 2.0
