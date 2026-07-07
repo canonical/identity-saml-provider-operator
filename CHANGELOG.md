@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/canonical/identity-saml-provider-operator/compare/v1.0.2...v1.0.3) (2026-07-07)
+
+
+### Bug Fixes
+
+* fix the permissions required in the publish workflow ([8157169](https://github.com/canonical/identity-saml-provider-operator/commit/8157169624b664b73fe146ab5986fda1a9b9fa37))
+
 ## [1.0.2](https://github.com/canonical/identity-saml-provider-operator/compare/v1.0.1...v1.0.2) (2026-07-02)
 
 
