@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.2](https://github.com/canonical/identity-saml-provider-operator/compare/v1.0.1...v1.0.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* add pebble checks ([5687043](https://github.com/canonical/identity-saml-provider-operator/commit/5687043149294ed1e17f4f7b0668980ea8042e52))
+* add the development mode charm configuration ([19f3fa4](https://github.com/canonical/identity-saml-provider-operator/commit/19f3fa4c99ab00f723485106564c365968eaf790))
+* fix importing the Self ([d7b1fa4](https://github.com/canonical/identity-saml-provider-operator/commit/d7b1fa47d62074cd036de8ccf2fce6edf7d0a07a))
+* fix the unit test ([ff2a8f5](https://github.com/canonical/identity-saml-provider-operator/commit/ff2a8f54bba7086f6c73785f7336bddec6b8a4fb))
+* update terraform module ([62b1aa8](https://github.com/canonical/identity-saml-provider-operator/commit/62b1aa82ca17f29b4c6c1eb862ad02a427c4fbbc))
+
 ## [1.0.1](https://github.com/canonical/identity-saml-provider-operator/compare/v1.0.0...v1.0.1) (2026-06-05)
 
 
