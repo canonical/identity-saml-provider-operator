@@ -85,7 +85,15 @@ actions:
 
 parts:
   charm:
-    plugin: charm
+    plugin: uv
+    source: .
+    build-snaps:
+      - astral-uv
+  templates:
+    plugin: dump
+    source: .
+    stage:
+      - templates
 
 platforms:
   ubuntu@24.04:amd64:

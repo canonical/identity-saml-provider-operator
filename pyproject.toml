@@ -1,6 +1,60 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
+[project]
+name = "identity-saml-provider-operator"
+version = "0.0.0"
+description = "A complete SAML-to-OIDC bridge solution"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.12"
+dependencies = [
+    "cosl>=0.0.26",
+    "Jinja2==3.1.6",
+    "jsonschema",
+    "lightkube==0.22.0",
+    "ops==3.8.0",
+    "pydantic>=2.0,<3.0",
+]
+
+[dependency-groups]
+fmt = [
+    "isort",
+    "ruff",
+]
+lint = [
+    "codespell",
+    "isort",
+    "ruff",
+    "tomli",
+]
+unit = [
+    "coverage[toml]",
+    "ops[testing]",
+    "pytest",
+    "pytest-mock",
+]
+integration = [
+    "cryptography",
+    "jubilant",
+    "pytest",
+    "pytest-jubilant>=2,<3",
+    "requests",
+    "tenacity",
+]
+dev = [
+    "pre-commit",
+    "mypy",
+    "types-PyYAML",
+    "types-requests",
+    { include-group = "fmt" },
+    { include-group = "lint" },
+    { include-group = "unit" },
+]
+
+[tool.uv]
+package = false
+
 # Testing tools configuration
 [tool.coverage.run]
 branch = true

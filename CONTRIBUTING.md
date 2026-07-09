@@ -25,11 +25,11 @@ enhancements to this operator.
 
 ## Developing
 
-You can use the environments created by `tox` for development. It helps install
-`pre-commit`, `mypy` type checker, as well as Python dependencies.
+To set up a local development environment with all required dependencies,
+tools, and `pre-commit` configurations, you can use `uv`:
 
 ```shell
-tox devenv .venv
+uv sync --group dev
 source .venv/bin/activate
 ```
 
