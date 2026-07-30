@@ -13,7 +13,7 @@ dependencies = [
     "Jinja2==3.1.6",
     "jsonschema",
     "lightkube==0.22.0",
-    "ops==3.8.0",
+    "ops==3.8.1",
     "pydantic>=2.0,<3.0",
 ]
 
