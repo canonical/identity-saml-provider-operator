@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from unittest.mock import MagicMock, call
 
 import pytest
-from ops import SecretNotFoundError
+from ops import ConfigMeta, SecretNotFoundError
 from ops.pebble import PathError
 
 from configs import (
@@ -217,33 +217,39 @@ class TestCharmConfig:
             "saml_credentials": "secret:saml-credentials",
             "dev": False,
         }
+        meta_config = {
+            "dev": ConfigMeta("dev", "boolean", False, ""),
+            "saml_credentials": ConfigMeta("saml_credentials", "secret", None, ""),
+        }
         mocked_secret_resolver.resolve.side_effect = lambda secret_id: (
             {"resolved": secret_id} if secret_id else {}
         )
-        charm_config = CharmConfig(config, mocked_secret_resolver)
+        charm_config = CharmConfig(config, meta_config, mocked_secret_resolver)
 
         actual = charm_config.to_service_configs()
 
         assert actual["saml_credentials"] == {"resolved": "secret:saml-credentials"}
         assert actual["dev"] is False
-        assert set(actual) == CharmConfig.CONFIGS | CharmConfig.SECRET_CONFIGS
+        assert set(actual) == set(meta_config.keys())
         mocked_secret_resolver.resolve.assert_has_calls(
-            [call(config.get(key)) for key in CharmConfig.SECRET_CONFIGS],
+            [call("secret:saml-credentials")],
             any_order=True,
         )
-        assert mocked_secret_resolver.resolve.call_count == len(CharmConfig.SECRET_CONFIGS)
+        assert mocked_secret_resolver.resolve.call_count == 1
 
     def test_to_service_configs_with_empty_values(self, mocked_secret_resolver: MagicMock) -> None:
         config: Mapping[str, str] = {}
+        meta_config = {
+            "dev": ConfigMeta("dev", "boolean", False, ""),
+            "saml_credentials": ConfigMeta("saml_credentials", "secret", None, ""),
+        }
         mocked_secret_resolver.resolve.return_value = {}
-        charm_config = CharmConfig(config, mocked_secret_resolver)
+        charm_config = CharmConfig(config, meta_config, mocked_secret_resolver)
 
         actual = charm_config.to_service_configs()
 
-        for key in CharmConfig.CONFIGS:
-            assert actual[key] == ""
-        for key in CharmConfig.SECRET_CONFIGS:
-            assert actual[key] == {}
+        assert actual["dev"] is False
+        assert actual["saml_credentials"] == {}
 
     @pytest.mark.parametrize(
         "dev_config, expected_env_var",
@@ -265,7 +271,7 @@ class TestCharmConfig:
         mocked_secret_resolver.resolve.side_effect = lambda secret_id: (
             {"resolved": secret_id} if secret_id else {}
         )
-        charm_config = CharmConfig(config, mocked_secret_resolver)
+        charm_config = CharmConfig(config, {}, mocked_secret_resolver)
 
         actual = charm_config.to_env_vars()
 
