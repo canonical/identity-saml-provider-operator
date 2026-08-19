@@ -1,0 +1,89 @@
+name: OpenCode Code Review
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    if: |
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/opencode-review') &&
+      (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'COLLABORATOR')
+
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Parse Model from Comment
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          if [[ "$COMMENT" =~ model=([^ ]+) ]]; then
+              echo "MODEL=${BASH_REMATCH[1]}" >> $GITHUB_ENV
+          else
+              echo "MODEL=openrouter/deepseek/deepseek-v4-flash" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Run OpenCode Code Review
+        uses: anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a # latest
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_CI_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          use_github_token: true
+          model: ${{ env.MODEL }}
+          prompt: |
+            You are a senior Canonical Charmed Operator and Python engineer reviewing a pull request
+            for the Ubuntu SSO K8s Operator repository (Python 3.12+, Juju ≥ 3.6, Canonical Ops framework).
+
+            Review the pull request diff against the project's architecture guidelines, Canonical Charmed
+            Operator best practices, and idiomatic Python 3.12+ standards.
+
+            ## Review Areas
+
+            - **Architecture & Design**: Alignment with project architecture, layered hierarchy,
+              orchestration/adapter separation, encapsulation of third-party/vendored libraries, and
+              holistic state reconciliation.
+            - **Python Style & Idioms**: Standard Python formatting, idiomatic code patterns, naming
+              conventions, modern Python 3.12 features, clean control flow, explicit type hints, and
+              deferred logging parameter substitution.
+            - **Code Safety & Error Handling**: None/boundary checks, state validation, proper exception
+              handling (EAFP, fast failure), resource cleanup, and avoiding unhandled runtime failures.
+            - **Performance**: Inefficient algorithms or data structures, unnecessary allocations or
+              repeated computations, redundant I/O operations, and unconstrained resource usage.
+            - **Documentation & Impact**: Google-style docstrings for public symbols, and ensuring major
+              project documentation (README, architecture docs, configuration schemas) is kept up-to-date
+              with code and behavior changes.
+            - **Testing & Quality**: Unit test coverage for new/modified paths (`ops.testing` for charm
+              events, `pytest` for modules), assertion quality on both success and error paths, and test
+              maintainability.
+            - **Security & Reliability**: Secure secret handling, input validation, defense against
+              injection/exposure, and operational robustness.
+
+            ## Severity Labels
+
+            - 🔴 **BLOCKING** — Bugs, security risks, correctness issues, or violations of project
+              architecture and safety contracts; must be fixed before merge.
+            - 🟠 **IMPORTANT** — Code quality, maintainability, testing gaps, outdated project
+              documentation, or significant anti-patterns; strongly recommended.
+            - 🟡 **SUGGESTION** — Minor style, naming, performance optimizations, or readability tweaks;
+              optional.
+
+            ## Guidelines
+
+            - Keep feedback concise, specific, and actionable.
+            - Reference the exact file path and line number for each finding.
+            - Explain *what* is wrong, *why* it matters, and provide a concrete fix snippet.
