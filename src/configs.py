@@ -11,7 +11,7 @@ from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     adjust_resource_requirements,
 )
 from lightkube.models.core_v1 import ResourceRequirements
-from ops import ConfigData, Container, Model, SecretNotFoundError
+from ops import ConfigData, ConfigMeta, Container, Model, SecretNotFoundError
 from ops.pebble import PathError
 from typing_extensions import Self
 
@@ -149,29 +149,36 @@ class JujuSecretResolver:
 
 
 class CharmConfig:
-    """A class representing the data source of charm configurations."""
+    """A class representing the data source of charm configurations.
 
-    CONFIGS: set[str] = {
-        "dev",
-    }
+    Iterates over the configuration schema declared in charmcraft.yaml
+    and resolves secret-typed configs via the provided SecretResolver.
+    """
 
-    SECRET_CONFIGS: set[str] = {
-        "saml_credentials",
-    }
-
-    def __init__(self, config: ConfigData, secret_resolver: SecretResolver) -> None:
+    def __init__(
+        self,
+        config: ConfigData,
+        meta_config: dict[str, ConfigMeta],
+        secret_resolver: SecretResolver,
+    ) -> None:
         self._config = config
+        self._meta_config = meta_config
         self._secret_resolver = secret_resolver
 
     def to_service_configs(self) -> ServiceConfigs:
-        configs = {key: self._config.get(key, "") for key in self.CONFIGS}
+        """Build a flat mapping of all charm config keys to their values.
 
-        secret_configs = {
-            key: self._secret_resolver.resolve(self._config.get(key))
-            for key in self.SECRET_CONFIGS
-        }
+        Secret-typed configs are resolved through the SecretResolver;
+        all other configs are returned with their current or default values.
+        """
+        configs: ServiceConfigs = {}
+        for key, meta in self._meta_config.items():
+            if meta.type == "secret":
+                configs[key] = self._secret_resolver.resolve(self._config.get(key))
+            else:
+                configs[key] = self._config.get(key, meta.default)
 
-        return {**configs, **secret_configs}
+        return configs
 
     def to_env_vars(self) -> EnvVars:
         dev = self._config.get("dev", False)

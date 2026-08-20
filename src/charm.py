@@ -98,7 +98,9 @@ class IdentitySAMLProviderCharm(CharmBase):
         super().__init__(*args)
 
         self.peer_data = PeerData(self.model)
-        self.charm_config = CharmConfig(self.config, JujuSecretResolver(self.model))
+        self.charm_config = CharmConfig(
+            self.config, self.meta.config, JujuSecretResolver(self.model)
+        )
 
         self._container = self.unit.get_container(WORKLOAD_CONTAINER)
         self._workload_service = WorkloadService(self.unit)
