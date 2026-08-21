@@ -114,6 +114,14 @@ def oauth_integration() -> testing.Relation:
 
 
 @pytest.fixture
+def oauth_secret() -> testing.Secret:
+    return testing.Secret(
+        id="secret:123",
+        tracked_content={"secret": "secret_value"},
+    )
+
+
+@pytest.fixture
 def certificate_transfer_integration() -> testing.Relation:
     return testing.Relation(
         endpoint="receive-ca-cert",

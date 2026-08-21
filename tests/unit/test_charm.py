@@ -424,13 +424,16 @@ class TestHolisticHandler:
         disconnected_container: testing.Container,
         peer_integration: testing.PeerRelation,
         database_integration: testing.Relation,
+        oauth_integration: testing.Relation,
+        oauth_secret: testing.Secret,
         mocked_database_resource_created: MagicMock,
         mocked_migration_not_needed: MagicMock,
     ) -> None:
         ctx = testing.Context(IdentitySAMLProviderCharm)
         state_in = testing.State(
             containers={disconnected_container},
-            relations={peer_integration, database_integration},
+            relations={peer_integration, database_integration, oauth_integration},
+            secrets={oauth_secret},
             leader=True,
         )
 
@@ -445,6 +448,8 @@ class TestHolisticHandler:
         base_container: testing.Container,
         peer_integration: testing.PeerRelation,
         database_integration: testing.Relation,
+        oauth_integration: testing.Relation,
+        oauth_secret: testing.Secret,
         mocked_database_resource_created: MagicMock,
         mocked_migration_not_needed: MagicMock,
         caplog: pytest.LogCaptureFixture,
@@ -452,7 +457,8 @@ class TestHolisticHandler:
         ctx = testing.Context(IdentitySAMLProviderCharm)
         state_in = testing.State(
             containers={base_container},
-            relations={peer_integration, database_integration},
+            relations={peer_integration, database_integration, oauth_integration},
+            secrets={oauth_secret},
             leader=True,
         )
 

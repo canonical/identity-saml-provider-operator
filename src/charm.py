@@ -373,9 +373,11 @@ class IdentitySAMLProviderCharm(CharmBase):
         is_migration_ready = migration_is_ready(self)
         if self.unit.is_leader() and not is_migration_ready:
             event.add_status(WaitingStatus("Waiting for database migration"))
+            return
 
         if not self.unit.is_leader() and not is_migration_ready:
             event.add_status(WaitingStatus("Waiting for leader unit to run the migration"))
+            return
 
         if not saml_bridge_certs_exist(self):
             event.add_status(BlockedStatus("Missing SAML bridge certificate and/or key file"))
