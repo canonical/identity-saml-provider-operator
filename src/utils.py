@@ -78,6 +78,7 @@ NOOP_CONDITIONS: tuple[Condition, ...] = (
     peer_integration_exists,
     database_integration_exists,
     database_resource_is_created,
+    oauth_integration_exists,
     migration_is_ready,
 )
 
