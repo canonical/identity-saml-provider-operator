@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, create_autospec
 import pytest
 from charms.data_platform_libs.v0.data_interfaces import DatabaseRequires
 
-from constants import APPLICATION_PORT, HYDRA_CA_CERT, OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH
+from constants import (
+    APPLICATION_PORT,
+    HYDRA_CA_CERT,
+    OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH,
+    POSTGRESQL_CA_CERT,
+)
 from integrations import (
     DatabaseConfig,
     OAuthIntegration,
@@ -115,6 +120,18 @@ class TestDatabaseConfig:
         )
 
     @pytest.fixture
+    def database_config_with_tls(self) -> DatabaseConfig:
+        return DatabaseConfig(
+            host="host",
+            port="port",
+            database="database",
+            username="username",
+            password="password",
+            tls_ca="-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----",
+            migration_version="migration_version",
+        )
+
+    @pytest.fixture
     def mocked_requirer(self) -> MagicMock:
         return create_autospec(DatabaseRequires)
 
@@ -128,16 +145,19 @@ class TestDatabaseConfig:
                 "read-only-endpoints": "read-only-host:read-only-port",
                 "username": "username",
                 "password": "password",
+                "tls-ca": "ca-cert-content",
             }
         }
 
-        actual = DatabaseConfig.load(mocked_requirer)
+        actual = DatabaseConfig.load(mocked_requirer, db_sslmode="verify-full")
         assert actual == DatabaseConfig(
             host="host",
             port="port",
             username="username",
             password="password",
             database="database",
+            tls_ca="ca-cert-content",
+            db_sslmode="verify-full",
             migration_version="migration_version_1",
         )
 
@@ -145,14 +165,42 @@ class TestDatabaseConfig:
         mocked_requirer.database = "database"
         mocked_requirer.relations = []
 
-        actual = DatabaseConfig.load(mocked_requirer)
-        assert actual == DatabaseConfig()
+        actual = DatabaseConfig.load(mocked_requirer, db_sslmode="require")
+        assert actual == DatabaseConfig(db_sslmode="require")
 
-    def test_dsn(self, database_config: DatabaseConfig) -> None:
+    def test_sslmode_default_without_tls(self, database_config: DatabaseConfig) -> None:
+        assert database_config.sslmode == "disable"
+
+    def test_sslmode_default_with_tls(self, database_config_with_tls: DatabaseConfig) -> None:
+        assert database_config_with_tls.sslmode == "verify-ca"
+
+    def test_sslmode_with_override(self) -> None:
+        config = DatabaseConfig(tls_ca="ca-cert", db_sslmode="verify-full")
+        assert config.sslmode == "verify-full"
+
+    def test_dsn_without_tls(self, database_config: DatabaseConfig) -> None:
         result = database_config.dsn
         assert result == "postgres://username:password@host:port/database?sslmode=disable"
 
-    def test_to_env_vars(self, database_config: DatabaseConfig) -> None:
+    def test_dsn_with_tls(self, database_config_with_tls: DatabaseConfig) -> None:
+        result = database_config_with_tls.dsn
+        expected = f"postgres://username:password@host:port/database?sslmode=verify-ca&sslrootcert={POSTGRESQL_CA_CERT}"
+        assert result == expected
+
+    def test_dsn_with_override(self) -> None:
+        config = DatabaseConfig(
+            host="host",
+            port="port",
+            database="database",
+            username="username",
+            password="password",
+            tls_ca="ca-cert",
+            db_sslmode="require",
+        )
+        expected = f"postgres://username:password@host:port/database?sslmode=require&sslrootcert={POSTGRESQL_CA_CERT}"
+        assert config.dsn == expected
+
+    def test_to_env_vars_without_tls(self, database_config: DatabaseConfig) -> None:
         env = database_config.to_env_vars()
 
         assert env["SAML_PROVIDER_DB_HOST"] == "host"
@@ -160,6 +208,25 @@ class TestDatabaseConfig:
         assert env["SAML_PROVIDER_DB_NAME"] == "database"
         assert env["SAML_PROVIDER_DB_USER"] == "username"
         assert env["SAML_PROVIDER_DB_PASSWORD"] == "password"
+        assert env["SAML_PROVIDER_DB_SSLMODE"] == "disable"
+        assert "SAML_PROVIDER_DB_CA_CERT_PATH" not in env
+
+    def test_to_env_vars_with_tls(self, database_config_with_tls: DatabaseConfig) -> None:
+        env = database_config_with_tls.to_env_vars()
+
+        assert env["SAML_PROVIDER_DB_HOST"] == "host"
+        assert env["SAML_PROVIDER_DB_PORT"] == "port"
+        assert env["SAML_PROVIDER_DB_NAME"] == "database"
+        assert env["SAML_PROVIDER_DB_USER"] == "username"
+        assert env["SAML_PROVIDER_DB_PASSWORD"] == "password"
+        assert env["SAML_PROVIDER_DB_SSLMODE"] == "verify-ca"
+        assert env["SAML_PROVIDER_DB_CA_CERT_PATH"] == str(POSTGRESQL_CA_CERT)
+
+    def test_to_service_configs(self, database_config_with_tls: DatabaseConfig) -> None:
+        configs = database_config_with_tls.to_service_configs()
+        assert configs == {
+            "postgresql_ca_cert": "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----"
+        }
 
 
 class TestPublicRouteIntegration:

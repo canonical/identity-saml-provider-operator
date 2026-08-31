@@ -13,6 +13,7 @@ from constants import (
     PUBLIC_ROUTE_INTEGRATION_NAME,
     SAML_BRIDGE_CERT,
     SAML_BRIDGE_KEY,
+    VALID_DB_SSLMODES,
     WORKLOAD_CONTAINER,
 )
 
@@ -64,6 +65,11 @@ def migration_is_ready(charm: "IdentitySAMLProviderCharm") -> bool:
     return not charm.migration_needed
 
 
+def db_sslmode_is_valid(charm: "IdentitySAMLProviderCharm") -> bool:
+    db_sslmode = charm.charm_config.db_sslmode
+    return not db_sslmode or db_sslmode in VALID_DB_SSLMODES
+
+
 def saml_bridge_certs_exist(charm: CharmBase) -> bool:
     container = charm.unit.get_container(WORKLOAD_CONTAINER)
     return (
@@ -80,6 +86,7 @@ NOOP_CONDITIONS: tuple[Condition, ...] = (
     database_resource_is_created,
     oauth_integration_exists,
     migration_is_ready,
+    db_sslmode_is_valid,
 )
 
 # Condition failure causes early return with corresponding event deferred

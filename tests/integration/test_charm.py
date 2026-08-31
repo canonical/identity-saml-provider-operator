@@ -89,6 +89,7 @@ def test_build_and_deploy(
     juju.grant_secret(saml_credentials_secret, SAML_APP)
     juju.config(SAML_APP, {"saml_credentials": saml_credentials_secret})
 
+    juju.integrate(f"{DB_APP}:certificates", CA_APP)
     juju.integrate(f"{TRAEFIK_APP}:certificates", CA_APP)
     juju.integrate(f"{HYDRA_APP}:pg-database", DB_APP)
     juju.integrate(f"{HYDRA_APP}:public-route", TRAEFIK_APP)

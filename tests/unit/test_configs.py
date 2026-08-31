@@ -13,10 +13,16 @@ from configs import (
     CharmConfig,
     HydraCertificates,
     JujuSecretResolver,
+    PostgreSQLCertificates,
     SAMLBridgeCert,
     SAMLBridgeKey,
 )
-from constants import HYDRA_CA_CERT, SAML_BRIDGE_CERT, SAML_BRIDGE_KEY
+from constants import (
+    HYDRA_CA_CERT,
+    POSTGRESQL_CA_CERT,
+    SAML_BRIDGE_CERT,
+    SAML_BRIDGE_KEY,
+)
 
 
 class TestSAMLBridgeKey:
@@ -138,6 +144,43 @@ class TestHydraCertificates:
         container.pull.side_effect = PathError("not-found", "file not found")
 
         result = HydraCertificates.from_workload_container(container)
+
+        assert result.content == ""
+
+
+class TestPostgreSQLCertificates:
+    def test_from_sources(self) -> None:
+        source = MagicMock()
+        source.to_service_configs.return_value = {"postgresql_ca_cert": "postgres-ca-bundle"}
+
+        result = PostgreSQLCertificates.from_sources(source)
+
+        assert result.content == "postgres-ca-bundle"
+        assert result.file_path == POSTGRESQL_CA_CERT
+
+    def test_sources_with_missing_certs(self) -> None:
+        source = MagicMock()
+        source.to_service_configs.return_value = {}
+
+        result = PostgreSQLCertificates.from_sources(source)
+
+        assert result.content == ""
+
+    def test_from_workload_container(self, mocked_container: MagicMock) -> None:
+        mock_file = MagicMock()
+        mock_file.read.return_value = "postgres-ca-content"
+        mocked_container.pull.return_value.__enter__ = MagicMock(return_value=mock_file)
+        mocked_container.pull.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = PostgreSQLCertificates.from_workload_container(mocked_container)
+
+        assert result.content == "postgres-ca-content"
+
+    def test_from_workload_container_when_path_error(self) -> None:
+        container = MagicMock()
+        container.pull.side_effect = PathError("not-found", "file not found")
+
+        result = PostgreSQLCertificates.from_workload_container(container)
 
         assert result.content == ""
 
@@ -276,3 +319,24 @@ class TestCharmConfig:
         actual = charm_config.to_env_vars()
 
         assert actual == {"SAML_PROVIDER_DEV_MODE": expected_env_var}
+
+    @pytest.mark.parametrize(
+        "db_sslmode_config, expected",
+        [
+            ("verify-full", "verify-full"),
+            ("", ""),
+            (None, ""),
+        ],
+    )
+    def test_db_sslmode(
+        self,
+        mocked_secret_resolver: MagicMock,
+        db_sslmode_config: str | None,
+        expected: str,
+    ) -> None:
+        config = {}
+        if db_sslmode_config is not None:
+            config["db_sslmode"] = db_sslmode_config
+        charm_config = CharmConfig(config, {}, mocked_secret_resolver)
+
+        assert charm_config.db_sslmode == expected

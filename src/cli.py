@@ -35,8 +35,8 @@ class CommandLine:
         """Apply the database migration."""
         cmd = [
             "/usr/bin/identity-saml-provider",
-            "migrate",
-            "up",
+            "migrations",
+            "apply",
             "--dsn",
             dsn,
         ]

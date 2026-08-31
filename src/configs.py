@@ -15,7 +15,12 @@ from ops import ConfigData, ConfigMeta, Container, Model, SecretNotFoundError
 from ops.pebble import PathError
 from typing_extensions import Self
 
-from constants import HYDRA_CA_CERT, SAML_BRIDGE_CERT, SAML_BRIDGE_KEY
+from constants import (
+    HYDRA_CA_CERT,
+    POSTGRESQL_CA_CERT,
+    SAML_BRIDGE_CERT,
+    SAML_BRIDGE_KEY,
+)
 from env_vars import EnvVars
 
 logger = logging.getLogger(__name__)
@@ -116,6 +121,29 @@ class HydraCertificates:
             return cls("")
 
 
+@dataclass(frozen=True)
+class PostgreSQLCertificates:
+    file_path: ClassVar[str | PurePath] = POSTGRESQL_CA_CERT
+    content: str
+
+    @classmethod
+    def from_sources(cls, *service_config_sources: ServiceConfigSource) -> Self:
+        configs: MutableMapping[str, Any] = ChainMap(
+            *(source.to_service_configs() for source in service_config_sources)
+        )
+
+        ca_certs = configs.get("postgresql_ca_cert", "")
+        return cls(ca_certs)
+
+    @classmethod
+    def from_workload_container(cls, workload_container: Container) -> Self:
+        try:
+            with workload_container.pull(cls.file_path, encoding="utf-8") as f:
+                return cls(f.read())
+        except PathError:
+            return cls("")
+
+
 class SecretResolver(Protocol):
     """An interface for resolving Juju secrets."""
 
@@ -179,6 +207,10 @@ class CharmConfig:
                 configs[key] = self._config.get(key, meta.default)
 
         return configs
+
+    @property
+    def db_sslmode(self) -> str:
+        return str(self._config.get("db_sslmode") or "")
 
     def to_env_vars(self) -> EnvVars:
         dev = self._config.get("dev", False)

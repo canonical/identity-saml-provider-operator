@@ -127,9 +127,7 @@ class PebbleService:
         self._container = unit.get_container(WORKLOAD_CONTAINER)
         self._layer_dict: LayerDict = PEBBLE_LAYER_DICT
 
-    def plan(self, layer: Layer, *container_files: ContainerFile) -> None:
-        self._container.add_layer(WORKLOAD_SERVICE, layer, combine=True)
-
+    def push_files(self, *container_files: ContainerFile) -> bool:
         restart_needed = False
         for container_file in container_files:
             current = container_file.from_workload_container(self._container)
@@ -140,8 +138,16 @@ class PebbleService:
                 )
                 restart_needed = True
 
+        return restart_needed
+
+    def plan(self, layer: Layer, *container_files: ContainerFile) -> None:
+        self._container.add_layer(WORKLOAD_SERVICE, layer, combine=True)
+
+        restart_needed = self.push_files(*container_files)
+
         try:
-            if restart_needed:
+            # Pebble services configured with startup: "disabled" are not started by replan() if they are inactive
+            if restart_needed or not self._container.get_service(WORKLOAD_SERVICE).is_running():
                 self._container.restart(WORKLOAD_SERVICE)
             else:
                 self._container.replan()

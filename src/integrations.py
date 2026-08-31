@@ -25,7 +25,9 @@ from constants import (
     OAUTH_SCOPES,
     OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH,
     PEER_INTEGRATION_NAME,
+    POSTGRESQL_CA_CERT,
     POSTGRESQL_DSN_TEMPLATE,
+    POSTGRESQL_TLS_DSN_TEMPLATE,
 )
 from env_vars import EnvVars
 
@@ -74,30 +76,63 @@ class DatabaseConfig:
     database: str = ""
     username: str = ""
     password: str = ""
+    tls_ca: str = ""
+    db_sslmode: str = ""
     migration_version: str = ""
 
     @property
+    def sslmode(self) -> str:
+        if self.db_sslmode:
+            return self.db_sslmode
+        if self.tls_ca:
+            return "verify-ca"
+        return "disable"
+
+    @property
     def dsn(self) -> str:
+        if self.tls_ca:
+            return POSTGRESQL_TLS_DSN_TEMPLATE.substitute(
+                username=self.username,
+                password=self.password,
+                endpoint=f"{self.host}:{self.port}",
+                database=self.database,
+                sslmode=self.sslmode,
+                sslrootcert=str(POSTGRESQL_CA_CERT),
+            )
+
         return POSTGRESQL_DSN_TEMPLATE.substitute(
             username=self.username,
             password=self.password,
             endpoint=f"{self.host}:{self.port}",
             database=self.database,
+            sslmode=self.sslmode,
         )
 
     def to_env_vars(self) -> EnvVars:
-        return {
+        env: EnvVars = {
             "SAML_PROVIDER_DB_HOST": self.host,
             "SAML_PROVIDER_DB_PORT": self.port,
             "SAML_PROVIDER_DB_NAME": self.database,
             "SAML_PROVIDER_DB_USER": self.username,
             "SAML_PROVIDER_DB_PASSWORD": self.password,
+            "SAML_PROVIDER_DB_SSLMODE": self.sslmode,
+        }
+        if self.tls_ca:
+            return {
+                **env,
+                "SAML_PROVIDER_DB_CA_CERT_PATH": str(POSTGRESQL_CA_CERT),
+            }
+        return env
+
+    def to_service_configs(self) -> ServiceConfigs:
+        return {
+            "postgresql_ca_cert": self.tls_ca,
         }
 
     @classmethod
-    def load(cls, requirer: DatabaseRequires) -> Self:
+    def load(cls, requirer: DatabaseRequires, db_sslmode: str = "") -> Self:
         if not (database_integrations := requirer.relations):
-            return cls()
+            return cls(db_sslmode=db_sslmode)
 
         integration_id = database_integrations[0].id
         integration_data: dict[str, str] = requirer.fetch_relation_data()[integration_id]
@@ -110,6 +145,8 @@ class DatabaseConfig:
             database=requirer.database,
             username=integration_data.get("username", ""),
             password=integration_data.get("password", ""),
+            tls_ca=integration_data.get("tls-ca", ""),
+            db_sslmode=db_sslmode,
             migration_version=f"migration_version_{integration_id}",
         )
 

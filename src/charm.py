@@ -18,11 +18,7 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseRequires,
 )
 from charms.hydra.v0.oauth import ClientConfig as OAuthClientConfig
-from charms.hydra.v0.oauth import (
-    OAuthInfoChangedEvent,
-    OAuthInfoRemovedEvent,
-    OAuthRequirer,
-)
+from charms.hydra.v0.oauth import OAuthInfoChangedEvent, OAuthInfoRemovedEvent, OAuthRequirer
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,
 )
@@ -50,6 +46,7 @@ from configs import (
     HydraCertificates,
     JujuSecretResolver,
     KubernetesResources,
+    PostgreSQLCertificates,
     SAMLBridgeCert,
     SAMLBridgeKey,
 )
@@ -64,6 +61,7 @@ from constants import (
     OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH,
     PEER_INTEGRATION_NAME,
     PUBLIC_ROUTE_INTEGRATION_NAME,
+    VALID_DB_SSLMODES,
     WORKLOAD_CONTAINER,
 )
 from exceptions import MigrationError, PebbleServiceError
@@ -214,6 +212,10 @@ class IdentitySAMLProviderCharm(CharmBase):
         )
 
     @property
+    def database_config(self) -> DatabaseConfig:
+        return DatabaseConfig.load(self.database_requirer, db_sslmode=self.charm_config.db_sslmode)
+
+    @property
     def migration_needed(self) -> bool:
         if not peer_integration_exists(self):
             return False
@@ -221,16 +223,17 @@ class IdentitySAMLProviderCharm(CharmBase):
         if not container_connectivity(self):
             return False
 
-        database_config = DatabaseConfig.load(self.database_requirer)
-        return self.peer_data[database_config.migration_version] != self._workload_service.version
+        return (
+            self.peer_data[self.database_config.migration_version]
+            != self._workload_service.version
+        )
 
     @property
     def _pebble_layer(self) -> Layer:
-        database_config = DatabaseConfig.load(self.database_requirer)
         hydra_ca = TransferredCertificates.load(self.certificate_transfer_requirer)
 
         return self._pebble_service.render_pebble_layer(
-            database_config,
+            self.database_config,
             self.public_route_integration,
             self.oauth_integration,
             hydra_ca,
@@ -244,6 +247,7 @@ class IdentitySAMLProviderCharm(CharmBase):
             SAMLBridgeCert.from_sources(self.charm_config),
             SAMLBridgeKey.from_sources(self.charm_config),
             HydraCertificates.from_sources(hydra_ca),
+            PostgreSQLCertificates.from_sources(self.database_config),
         ]
 
     def _on_leader_elected(self, event: LeaderElectedEvent) -> None:
@@ -299,12 +303,13 @@ class IdentitySAMLProviderCharm(CharmBase):
             return
 
         try:
-            self._cli.migrate(DatabaseConfig.load(self.database_requirer).dsn)
+            self._pebble_service.push_files(*self.config_files)
+            self._cli.migrate(self.database_config.dsn)
         except MigrationError:
             logger.error("Auto migration job failed. Please use the run-migration action")
             return
 
-        migration_version = DatabaseConfig.load(self.database_requirer).migration_version
+        migration_version = self.database_config.migration_version
         self.peer_data[migration_version] = self._workload_service.version
 
         self._holistic_handler(event)
@@ -370,6 +375,14 @@ class IdentitySAMLProviderCharm(CharmBase):
         if not oauth_integration_exists(self):
             event.add_status(BlockedStatus(f"Missing integration {OAUTH_INTEGRATION_NAME}"))
 
+        db_sslmode = self.charm_config.db_sslmode
+        if db_sslmode and db_sslmode not in VALID_DB_SSLMODES:
+            event.add_status(
+                BlockedStatus(
+                    f"Invalid db_sslmode '{db_sslmode}'. Must be one of: {', '.join(VALID_DB_SSLMODES)}"
+                )
+            )
+
         is_migration_ready = migration_is_ready(self)
         if self.unit.is_leader() and not is_migration_ready:
             event.add_status(WaitingStatus("Waiting for database migration"))
@@ -429,16 +442,16 @@ class IdentitySAMLProviderCharm(CharmBase):
         event.log("Started migrating the database")
 
         timeout = float(event.params.get("timeout", 120))
-        database_config = DatabaseConfig.load(self.database_requirer)
         try:
-            self._cli.migrate(dsn=database_config.dsn, timeout=timeout)
+            self._pebble_service.push_files(*self.config_files)
+            self._cli.migrate(dsn=self.database_config.dsn, timeout=timeout)
         except MigrationError as err:
             event.fail(f"Database migration failed: {err}")
             return
         else:
             event.log("Successfully migrated the database")
 
-        migration_version = database_config.migration_version
+        migration_version = self.database_config.migration_version
         self.peer_data[migration_version] = self._workload_service.version
         event.log("Successfully updated migration version")
 
