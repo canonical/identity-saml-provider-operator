@@ -5,9 +5,12 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from ops import testing
+from ops.model import BlockedStatus
 from pytest_mock import MockerFixture
 
 from charm import IdentitySAMLProviderCharm
+from configs import PostgreSQLCertificates
+from constants import VALID_DB_SSLMODES
 from exceptions import MigrationError, PebbleServiceError
 
 
@@ -467,3 +470,134 @@ class TestHolisticHandler:
 
         mocked_plan.assert_called_once()
         assert "Failed to start the service, please check the container logs" in caplog.text
+
+    def test_when_database_has_tls_ca(
+        self,
+        base_container: testing.Container,
+        peer_integration: testing.PeerRelation,
+        oauth_integration: testing.Relation,
+        oauth_secret: testing.Secret,
+        mocked_database_resource_created: MagicMock,
+        mocked_migration_not_needed: MagicMock,
+    ) -> None:
+        db_integration = testing.Relation(
+            endpoint="database",
+            interface="postgresql_client",
+            remote_app_name="postgresql-k8s",
+            remote_app_data={
+                "data": '{"database": "saml_provider", "extra-user-roles": "SUPERUSER"}',
+                "database": "database",
+                "endpoints": "endpoints",
+                "username": "username",
+                "password": "password",
+                "tls-ca": "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----",
+            },
+        )
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(
+            containers={base_container},
+            relations={peer_integration, db_integration, oauth_integration},
+            secrets={oauth_secret},
+            leader=True,
+        )
+
+        with patch("charm.PebbleService.plan") as mocked_plan:
+            ctx.run(ctx.on.start(), state_in)
+
+        mocked_plan.assert_called_once()
+        config_files = mocked_plan.call_args[0][1:]
+        pg_certs = [f for f in config_files if isinstance(f, PostgreSQLCertificates)]
+        assert len(pg_certs) == 1
+        assert pg_certs[0].content == "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----"
+
+    def test_when_db_sslmode_invalid_noop(
+        self,
+        base_container: testing.Container,
+        peer_integration: testing.PeerRelation,
+        database_integration: testing.Relation,
+        oauth_integration: testing.Relation,
+        oauth_secret: testing.Secret,
+        mocked_database_resource_created: MagicMock,
+        mocked_migration_not_needed: MagicMock,
+    ) -> None:
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(
+            config={"db_sslmode": "invalid-sslmode"},
+            containers={base_container},
+            relations={peer_integration, database_integration, oauth_integration},
+            secrets={oauth_secret},
+            leader=True,
+        )
+
+        with patch("charm.PebbleService.plan") as mocked_plan:
+            ctx.run(ctx.on.start(), state_in)
+
+        mocked_plan.assert_not_called()
+
+
+class TestCollectStatus:
+    def test_when_invalid_db_sslmode(
+        self,
+        base_container: testing.Container,
+        peer_integration: testing.PeerRelation,
+        database_integration: testing.Relation,
+        oauth_integration: testing.Relation,
+        mocked_database_resource_created: MagicMock,
+        mocked_migration_not_needed: MagicMock,
+    ) -> None:
+        public_route_integration = testing.Relation(
+            endpoint="public-route",
+            interface="traefik_route",
+        )
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(
+            config={"db_sslmode": "invalid-mode"},
+            containers={base_container},
+            relations={
+                peer_integration,
+                database_integration,
+                oauth_integration,
+                public_route_integration,
+            },
+            leader=True,
+        )
+
+        state_out = ctx.run(ctx.on.collect_unit_status(), state_in)
+
+        expected_status = BlockedStatus(
+            f"Invalid db_sslmode 'invalid-mode'. Must be one of: {', '.join(VALID_DB_SSLMODES)}"
+        )
+        assert state_out.unit_status == expected_status
+
+    def test_when_valid_db_sslmode(
+        self,
+        base_container: testing.Container,
+        peer_integration: testing.PeerRelation,
+        database_integration: testing.Relation,
+        oauth_integration: testing.Relation,
+        mocked_database_resource_created: MagicMock,
+        mocked_migration_not_needed: MagicMock,
+    ) -> None:
+        public_route_integration = testing.Relation(
+            endpoint="public-route",
+            interface="traefik_route",
+        )
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(
+            config={"db_sslmode": "verify-full"},
+            containers={base_container},
+            relations={
+                peer_integration,
+                database_integration,
+                oauth_integration,
+                public_route_integration,
+            },
+            leader=True,
+        )
+
+        state_out = ctx.run(ctx.on.collect_unit_status(), state_in)
+
+        assert (
+            not isinstance(state_out.unit_status, BlockedStatus)
+            or "Invalid db_sslmode" not in state_out.unit_status.message
+        )

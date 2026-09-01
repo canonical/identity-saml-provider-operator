@@ -40,8 +40,8 @@ class TestCommandLine:
 
         expected_cmd = [
             "/usr/bin/identity-saml-provider",
-            "migrate",
-            "up",
+            "migrations",
+            "apply",
             "--dsn",
             "dsn",
         ]

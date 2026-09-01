@@ -188,6 +188,7 @@ class TestPebbleService:
         new_container_file: MagicMock,
     ) -> None:
         layer = MagicMock()
+        mocked_container.get_service.return_value.is_running.return_value = True
 
         with patch.object(
             new_container_file, "from_workload_container", return_value=new_container_file
@@ -198,6 +199,54 @@ class TestPebbleService:
         mocked_container.push.assert_not_called()
         mocked_container.restart.assert_not_called()
         mocked_container.replan.assert_called_once_with()
+
+    def test_plan_when_service_not_running(
+        self,
+        mocked_container: MagicMock,
+        pebble_service: PebbleService,
+        new_container_file: MagicMock,
+    ) -> None:
+        layer = MagicMock()
+        mocked_container.get_service.return_value.is_running.return_value = False
+
+        with patch.object(
+            new_container_file, "from_workload_container", return_value=new_container_file
+        ):
+            pebble_service.plan(layer, new_container_file)
+
+        mocked_container.add_layer.assert_called_once_with(WORKLOAD_SERVICE, layer, combine=True)
+        mocked_container.push.assert_not_called()
+        mocked_container.restart.assert_called_once_with(WORKLOAD_SERVICE)
+        mocked_container.replan.assert_not_called()
+
+    def test_push_files_when_container_file_unchanged(
+        self,
+        mocked_container: MagicMock,
+        pebble_service: PebbleService,
+        new_container_file: MagicMock,
+    ) -> None:
+        with patch.object(
+            new_container_file, "from_workload_container", return_value=new_container_file
+        ):
+            restart_needed = pebble_service.push_files(new_container_file)
+
+        assert restart_needed is False
+        mocked_container.push.assert_not_called()
+
+    def test_push_files_when_container_file_changed(
+        self,
+        mocked_container: MagicMock,
+        pebble_service: PebbleService,
+        new_container_file: MagicMock,
+        existing_container_file: MagicMock,
+    ) -> None:
+        with patch.object(
+            new_container_file, "from_workload_container", return_value=existing_container_file
+        ):
+            restart_needed = pebble_service.push_files(new_container_file)
+
+        assert restart_needed is True
+        mocked_container.push.assert_called_once_with(HYDRA_CA_CERT, "abc", make_dirs=True)
 
     def test_plan_when_container_file_changed(
         self,

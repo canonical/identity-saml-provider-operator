@@ -7,14 +7,19 @@ from string import Template
 # Charm constants
 DATABASE_NAME = "saml_provider"
 POSTGRESQL_DSN_TEMPLATE = Template(
-    "postgres://$username:$password@$endpoint/$database?sslmode=disable"
+    "postgres://$username:$password@$endpoint/$database?sslmode=$sslmode"
 )
+POSTGRESQL_TLS_DSN_TEMPLATE = Template(
+    "postgres://$username:$password@$endpoint/$database?sslmode=$sslmode&sslrootcert=$sslrootcert"
+)
+VALID_DB_SSLMODES = ("disable", "allow", "prefer", "require", "verify-ca", "verify-full")
 WORKLOAD_CONTAINER = "identity-saml-provider"
 WORKLOAD_SERVICE = "identity-saml-provider"
 WORKLOAD_ALIVE_CHECK = "alive"
 WORKLOAD_READY_CHECK = "ready"
 CERTS_DIR_PATH = Path("/etc/saml")
 HYDRA_CA_CERT = CERTS_DIR_PATH / "hydra-ca.pem"
+POSTGRESQL_CA_CERT = CERTS_DIR_PATH / "postgres-ca.pem"
 SAML_BRIDGE_CERT = CERTS_DIR_PATH / "bridge.crt"
 SAML_BRIDGE_KEY = CERTS_DIR_PATH / "bridge.key"
 
