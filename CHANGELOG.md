@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.1.0](https://github.com/canonical/identity-saml-provider-operator/compare/v1.0.3...v1.1.0) (2026-09-01)
+
+
+### Features
+
+* support custom PostgreSQL CA certificate and configurable SSL mode ([f424a43](https://github.com/canonical/identity-saml-provider-operator/commit/f424a43c177e16d98e057605a2990faf00417e11))
+
+
+### Bug Fixes
+
+* **deps:** update dependency lightkube to v1 ([aa3c654](https://github.com/canonical/identity-saml-provider-operator/commit/aa3c654d90ac646bb772bf228ac16cda698e4800))
+* **deps:** update dependency lightkube to v1 ([06f976e](https://github.com/canonical/identity-saml-provider-operator/commit/06f976e9ab1b21678e7939a1006da838343964a4))
+* **deps:** update dependency lightkube to v1.0.1 ([317fbfe](https://github.com/canonical/identity-saml-provider-operator/commit/317fbfe1cd45e6c14fcfb30eddf85e26002c49d6))
+* **deps:** update dependency lightkube to v1.0.1 ([9605fb7](https://github.com/canonical/identity-saml-provider-operator/commit/9605fb77c27da0054b671cb23f60a3198c0f5b21))
+* **deps:** update dependency ops to v3.8.1 ([73c6b3f](https://github.com/canonical/identity-saml-provider-operator/commit/73c6b3f98db047319885af35b357393452598317))
+* **deps:** update dependency ops to v3.8.1 ([3206d9f](https://github.com/canonical/identity-saml-provider-operator/commit/3206d9f9967bcd4c81a8fe0cd4c3bd80f62de6c4))
+* **deps:** update dependency ops to v3.8.2 ([f678158](https://github.com/canonical/identity-saml-provider-operator/commit/f678158fde90d8fe7bba5039983e9d95ad4687a3))
+* **deps:** update dependency ops to v3.8.2 ([13f8c49](https://github.com/canonical/identity-saml-provider-operator/commit/13f8c495f44265349cce858756f8e402c80ae729))
+* fix the charm upgrade and add oauth integration check in holistic handler ([814f3f0](https://github.com/canonical/identity-saml-provider-operator/commit/814f3f0967cd6f3be759c6e7ae5a927c92ebac9a))
+* refactor the CharmConfig class to dynamically identify the charm config ([1b54078](https://github.com/canonical/identity-saml-provider-operator/commit/1b54078586be994185bcaa4da9e38852847568cf))
+
 ## [1.0.3](https://github.com/canonical/identity-saml-provider-operator/compare/v1.0.2...v1.0.3) (2026-07-07)
 
 
