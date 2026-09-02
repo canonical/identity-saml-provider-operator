@@ -6,7 +6,7 @@ on:
 jobs:
   update-charm-libs:
     name: Update Charm Libraries
-    uses: canonical/identity-team/.github/workflows/charm-libs-update.yaml@e017941885bd1d17774bf7be2cbbb1d1abe80d9e # v1.16.0
+    uses: canonical/identity-team/.github/workflows/charm-libs-update.yaml@be2569198bf90722de218a28abce81786472b83a # v1.16.1
     secrets:
       CHARMCRAFT_CREDENTIALS: ${{ secrets.CHARMCRAFT_CREDENTIALS }}
       PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
