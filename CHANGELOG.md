@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/canonical/identity-saml-provider-operator/compare/v1.1.0...v1.1.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* update publish workflow to bring timeout to secscan ([e79696b](https://github.com/canonical/identity-saml-provider-operator/commit/e79696b76d198f15aca80673a29307a4d4620947))
+
 ## [1.1.0](https://github.com/canonical/identity-saml-provider-operator/compare/v1.0.3...v1.1.0) (2026-09-01)
 
 
