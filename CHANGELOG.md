@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/canonical/identity-saml-provider-operator/compare/v1.1.1...v1.1.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* update charm publish workflow to unblock charm publish from secscan ([cf2817b](https://github.com/canonical/identity-saml-provider-operator/commit/cf2817b5a60aeeee94aef950bd623feb66d50970))
+
 ## [1.1.1](https://github.com/canonical/identity-saml-provider-operator/compare/v1.1.0...v1.1.1) (2026-09-02)
 
 
