@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.3](https://github.com/canonical/identity-saml-provider-operator/compare/v1.1.2...v1.1.3) (2026-10-10)
+
+
+### Bug Fixes
+
+* **deps:** update dependency ops to v3.8.3 ([b8c1129](https://github.com/canonical/identity-saml-provider-operator/commit/b8c1129555ae774d4b5a8e31d37ae3640f23630b))
+* **deps:** update dependency ops to v3.8.3 ([7cf2a25](https://github.com/canonical/identity-saml-provider-operator/commit/7cf2a25b8b024a6bdcced9b4b4506ee4f850adeb))
+* **deps:** update dependency ops to v3.9.0 ([28d6e88](https://github.com/canonical/identity-saml-provider-operator/commit/28d6e88e3eed89256d77fa3f394ac1cc610faeb3))
+* **deps:** update dependency ops to v3.9.0 ([63349b2](https://github.com/canonical/identity-saml-provider-operator/commit/63349b22765529a993aad357cbd34e2bea5331c6))
+
 ## [1.1.2](https://github.com/canonical/identity-saml-provider-operator/compare/v1.1.1...v1.1.2) (2026-09-02)
 
 
