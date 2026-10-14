@@ -1,6 +1,10 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
+import io
+import json
+import urllib.error
+from email.message import Message
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,15 +13,25 @@ from ops.pebble import CheckStatus
 
 from configs import HydraCertificates
 from constants import (
+    ADMIN_SERVICE_PROVIDERS_URL,
+    ADMIN_SP_ATTRIBUTE_MAPPING_URL,
     APPLICATION_PORT,
+    DEFAULT_ACS_BINDING,
     HYDRA_CA_CERT,
     WORKLOAD_ALIVE_CHECK,
     WORKLOAD_READY_CHECK,
     WORKLOAD_SERVICE,
 )
 from env_vars import DEFAULT_CONTAINER_ENV, EnvVarConvertible
-from exceptions import PebbleServiceError
+from exceptions import PebbleServiceError, ServiceProviderError
 from services import PebbleService, WorkloadService
+
+
+def _mock_http_response(body: dict[str, object]) -> MagicMock:
+    resp = MagicMock()
+    resp.__enter__.return_value = resp
+    resp.read.return_value = json.dumps(body).encode("utf-8")
+    return resp
 
 
 class TestWorkloadService:
@@ -160,6 +174,346 @@ class TestWorkloadService:
 
         assert mocked_unit.open_port.call_count == 1
         mocked_unit.open_port.assert_any_call(protocol="tcp", port=APPLICATION_PORT)
+
+    def test_create_service_provider_when_succeeds(
+        self, workload_service: WorkloadService
+    ) -> None:
+        response_body = {
+            "status": "success",
+            "message": "Service provider registered",
+            "entity_id": "https://sp.example.com",
+        }
+        with patch(
+            "services.urllib.request.urlopen",
+            return_value=_mock_http_response(response_body),
+        ) as mocked_urlopen:
+            result = workload_service.create_service_provider(
+                entity_id="https://sp.example.com",
+                acs_url="https://sp.example.com/acs",
+                attribute_mapping='{"name_id_format": "email"}',
+            )
+
+        assert result == {
+            "status": "success",
+            "message": "Service provider registered",
+            "entity-id": "https://sp.example.com",
+        }
+        req = mocked_urlopen.call_args[0][0]
+        assert req.full_url == ADMIN_SERVICE_PROVIDERS_URL
+        assert req.get_method() == "POST"
+        assert json.loads(req.data.decode("utf-8")) == {
+            "entity_id": "https://sp.example.com",
+            "acs_url": "https://sp.example.com/acs",
+            "acs_binding": DEFAULT_ACS_BINDING,
+            "attribute_mapping": {"name_id_format": "email"},
+        }
+
+    def test_create_service_provider_when_invalid_attribute_mapping_json(
+        self, workload_service: WorkloadService
+    ) -> None:
+        with pytest.raises(ServiceProviderError, match="Invalid attribute-mapping JSON"):
+            workload_service.create_service_provider(
+                entity_id="https://sp.example.com",
+                acs_url="https://sp.example.com/acs",
+                attribute_mapping="{invalid-json",
+            )
+
+    def test_create_service_provider_when_attribute_mapping_not_dict(
+        self, workload_service: WorkloadService
+    ) -> None:
+        with pytest.raises(
+            ServiceProviderError, match="Invalid attribute-mapping: must be a JSON object"
+        ):
+            workload_service.create_service_provider(
+                entity_id="https://sp.example.com",
+                acs_url="https://sp.example.com/acs",
+                attribute_mapping='["not", "a", "dict"]',
+            )
+
+    def test_update_service_provider_when_no_fields_provided(
+        self, workload_service: WorkloadService
+    ) -> None:
+        with pytest.raises(
+            ServiceProviderError,
+            match="At least one of acs-url, acs-binding, or attribute-mapping must be provided",
+        ):
+            workload_service.update_service_provider(entity_id="https://sp.example.com")
+
+    def test_update_service_provider_when_only_attribute_mapping_provided(
+        self, workload_service: WorkloadService
+    ) -> None:
+        response_body = {
+            "status": "success",
+            "message": "Attribute mapping updated",
+        }
+        with patch(
+            "services.urllib.request.urlopen",
+            return_value=_mock_http_response(response_body),
+        ) as mocked_urlopen:
+            result = workload_service.update_service_provider(
+                entity_id="https://sp.example.com",
+                attribute_mapping='{"name_id_format": "persistent"}',
+            )
+
+        assert result == response_body
+        req = mocked_urlopen.call_args[0][0]
+        assert req.get_method() == "PUT"
+        assert (
+            req.full_url
+            == f"{ADMIN_SP_ATTRIBUTE_MAPPING_URL}?entity_id=https%3A%2F%2Fsp.example.com"
+        )
+        assert json.loads(req.data.decode("utf-8")) == {"name_id_format": "persistent"}
+
+    def test_update_service_provider_when_acs_url_merged_with_existing(
+        self, workload_service: WorkloadService
+    ) -> None:
+        existing_sp = {
+            "entity_id": "https://sp.example.com",
+            "acs_url": "https://sp.example.com/old-acs",
+            "acs_binding": DEFAULT_ACS_BINDING,
+            "attribute_mapping": {"name_id_format": "email"},
+        }
+        post_response = {
+            "status": "success",
+            "message": "Service provider registered",
+            "entity_id": "https://sp.example.com",
+        }
+        with patch(
+            "services.urllib.request.urlopen",
+            side_effect=[_mock_http_response(existing_sp), _mock_http_response(post_response)],
+        ) as mocked_urlopen:
+            result = workload_service.update_service_provider(
+                entity_id="https://sp.example.com",
+                acs_url="https://sp.example.com/new-acs",
+            )
+
+        assert result == {
+            "status": "success",
+            "message": "Service provider registered",
+            "entity-id": "https://sp.example.com",
+        }
+        assert mocked_urlopen.call_count == 2
+        get_req = mocked_urlopen.call_args_list[0][0][0]
+        assert get_req.get_method() == "GET"
+        assert (
+            get_req.full_url
+            == f"{ADMIN_SERVICE_PROVIDERS_URL}?entity_id=https%3A%2F%2Fsp.example.com"
+        )
+        post_req = mocked_urlopen.call_args_list[1][0][0]
+        assert post_req.get_method() == "POST"
+        assert json.loads(post_req.data.decode("utf-8")) == {
+            "entity_id": "https://sp.example.com",
+            "acs_url": "https://sp.example.com/new-acs",
+            "acs_binding": DEFAULT_ACS_BINDING,
+            "attribute_mapping": {"name_id_format": "email"},
+        }
+
+    def test_update_service_provider_when_existing_record_missing_acs_url(
+        self, workload_service: WorkloadService
+    ) -> None:
+        existing_sp = {
+            "entity_id": "https://sp.example.com",
+        }
+        with (
+            patch(
+                "services.urllib.request.urlopen",
+                return_value=_mock_http_response(existing_sp),
+            ),
+            pytest.raises(
+                ServiceProviderError,
+                match="Existing service provider record is missing required acs-url",
+            ),
+        ):
+            workload_service.update_service_provider(
+                entity_id="https://sp.example.com",
+                acs_binding=DEFAULT_ACS_BINDING,
+            )
+
+    def test_get_service_provider_when_succeeds(self, workload_service: WorkloadService) -> None:
+        response_body = {
+            "entity_id": "https://sp.example.com",
+            "acs_url": "https://sp.example.com/acs",
+            "acs_binding": DEFAULT_ACS_BINDING,
+            "attribute_mapping": {"name_id_format": "email"},
+        }
+        with patch(
+            "services.urllib.request.urlopen",
+            return_value=_mock_http_response(response_body),
+        ) as mocked_urlopen:
+            result = workload_service.get_service_provider(entity_id="https://sp.example.com")
+
+        assert result == {
+            "entity-id": "https://sp.example.com",
+            "acs-url": "https://sp.example.com/acs",
+            "acs-binding": DEFAULT_ACS_BINDING,
+            "attribute-mapping": '{"name_id_format": "email"}',
+        }
+        req = mocked_urlopen.call_args[0][0]
+        assert req.get_method() == "GET"
+        assert (
+            req.full_url == f"{ADMIN_SERVICE_PROVIDERS_URL}?entity_id=https%3A%2F%2Fsp.example.com"
+        )
+
+    def test_get_service_provider_without_attribute_mapping(
+        self, workload_service: WorkloadService
+    ) -> None:
+        response_body = {
+            "entity_id": "https://sp.example.com",
+            "acs_url": "https://sp.example.com/acs",
+            "acs_binding": DEFAULT_ACS_BINDING,
+        }
+        with patch(
+            "services.urllib.request.urlopen",
+            return_value=_mock_http_response(response_body),
+        ):
+            result = workload_service.get_service_provider(entity_id="https://sp.example.com")
+
+        assert result == {
+            "entity-id": "https://sp.example.com",
+            "acs-url": "https://sp.example.com/acs",
+            "acs-binding": DEFAULT_ACS_BINDING,
+        }
+
+    def test_delete_service_provider_when_succeeds(
+        self, workload_service: WorkloadService
+    ) -> None:
+        response_body = {
+            "status": "success",
+            "message": "Attribute mapping cleared",
+        }
+        with patch(
+            "services.urllib.request.urlopen",
+            return_value=_mock_http_response(response_body),
+        ) as mocked_urlopen:
+            result = workload_service.delete_service_provider(entity_id="https://sp.example.com")
+
+        assert result == response_body
+        req = mocked_urlopen.call_args[0][0]
+        assert req.get_method() == "DELETE"
+        assert (
+            req.full_url
+            == f"{ADMIN_SP_ATTRIBUTE_MAPPING_URL}?entity_id=https%3A%2F%2Fsp.example.com"
+        )
+
+    def test_send_admin_request_when_http_error_with_json_message(
+        self, workload_service: WorkloadService, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        http_err = urllib.error.HTTPError(
+            url=ADMIN_SERVICE_PROVIDERS_URL,
+            code=404,
+            msg="Not Found",
+            hdrs=Message(),
+            fp=io.BytesIO(b'{"status": 404, "message": "service_provider not found"}'),
+        )
+        with (
+            patch("services.urllib.request.urlopen", side_effect=http_err),
+            caplog.at_level("ERROR"),
+            pytest.raises(ServiceProviderError, match="service_provider not found"),
+        ):
+            workload_service.delete_service_provider(entity_id="https://sp.example.com")
+
+        assert "failed with status 404: service_provider not found" in caplog.text
+
+    def test_send_admin_request_when_http_error_without_json_body(
+        self, workload_service: WorkloadService
+    ) -> None:
+        http_err = urllib.error.HTTPError(
+            url=ADMIN_SERVICE_PROVIDERS_URL,
+            code=500,
+            msg="Internal Server Error",
+            hdrs=Message(),
+            fp=io.BytesIO(b"plain error text"),
+        )
+        with (
+            patch("services.urllib.request.urlopen", side_effect=http_err),
+            pytest.raises(ServiceProviderError, match="Internal Server Error"),
+        ):
+            workload_service.delete_service_provider(entity_id="https://sp.example.com")
+
+    def test_send_admin_request_when_http_error_with_json_missing_message(
+        self, workload_service: WorkloadService
+    ) -> None:
+        http_err = urllib.error.HTTPError(
+            url=ADMIN_SERVICE_PROVIDERS_URL,
+            code=500,
+            msg="Server Error",
+            hdrs=Message(),
+            fp=io.BytesIO(b'{"error": "something"}'),
+        )
+        with (
+            patch("services.urllib.request.urlopen", side_effect=http_err),
+            pytest.raises(ServiceProviderError, match="Server Error"),
+        ):
+            workload_service.delete_service_provider(entity_id="https://sp.example.com")
+
+    def test_create_service_provider_without_attribute_mapping(
+        self, workload_service: WorkloadService
+    ) -> None:
+        response_body = {
+            "status": "success",
+            "message": "Service provider registered",
+            "entity_id": "https://sp.example.com",
+        }
+        with patch(
+            "services.urllib.request.urlopen",
+            return_value=_mock_http_response(response_body),
+        ) as mocked_urlopen:
+            workload_service.create_service_provider(
+                entity_id="https://sp.example.com",
+                acs_url="https://sp.example.com/acs",
+            )
+
+        req = mocked_urlopen.call_args[0][0]
+        assert json.loads(req.data.decode("utf-8")) == {
+            "entity_id": "https://sp.example.com",
+            "acs_url": "https://sp.example.com/acs",
+            "acs_binding": DEFAULT_ACS_BINDING,
+        }
+
+    def test_update_service_provider_when_no_attribute_mapping_in_existing(
+        self, workload_service: WorkloadService
+    ) -> None:
+        existing_sp = {
+            "entity_id": "https://sp.example.com",
+            "acs_url": "https://sp.example.com/old-acs",
+            "acs_binding": DEFAULT_ACS_BINDING,
+        }
+        post_response = {
+            "status": "success",
+            "message": "Service provider registered",
+            "entity_id": "https://sp.example.com",
+        }
+        with patch(
+            "services.urllib.request.urlopen",
+            side_effect=[_mock_http_response(existing_sp), _mock_http_response(post_response)],
+        ) as mocked_urlopen:
+            workload_service.update_service_provider(
+                entity_id="https://sp.example.com",
+                acs_url="https://sp.example.com/new-acs",
+            )
+
+        post_req = mocked_urlopen.call_args_list[1][0][0]
+        assert json.loads(post_req.data.decode("utf-8")) == {
+            "entity_id": "https://sp.example.com",
+            "acs_url": "https://sp.example.com/new-acs",
+            "acs_binding": DEFAULT_ACS_BINDING,
+        }
+
+    def test_send_admin_request_when_url_error(
+        self, workload_service: WorkloadService, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        url_err = urllib.error.URLError("Connection refused")
+        with (
+            patch("services.urllib.request.urlopen", side_effect=url_err),
+            caplog.at_level("ERROR"),
+            pytest.raises(
+                ServiceProviderError,
+                match="Failed to communicate with workload admin API",
+            ),
+        ):
+            workload_service.delete_service_provider(entity_id="https://sp.example.com")
+
+        assert "Failed to communicate with Admin API" in caplog.text
 
 
 class TestPebbleService:
