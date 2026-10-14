@@ -25,6 +25,11 @@ SAML_BRIDGE_KEY = CERTS_DIR_PATH / "bridge.key"
 
 # Application constants
 APPLICATION_PORT = 8082
+ADMIN_SERVICE_PROVIDERS_URL = f"http://localhost:{APPLICATION_PORT}/admin/service-providers"
+ADMIN_SP_ATTRIBUTE_MAPPING_URL = (
+    f"http://localhost:{APPLICATION_PORT}/admin/service-providers/attribute-mapping"
+)
+DEFAULT_ACS_BINDING = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
 OAUTH_SCOPES = "openid email profile"
 OAUTH_GRANT_TYPES = ["authorization_code", "refresh_token"]
 OIDC_REDIRECT_ENDPOINT_RESOURCE_PATH = "/saml/callback"

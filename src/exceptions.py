@@ -12,3 +12,7 @@ class PebbleServiceError(CharmError):
 
 class MigrationError(CharmError):
     """Error for database migration."""
+
+
+class ServiceProviderError(CharmError):
+    """Error for service provider management operations."""

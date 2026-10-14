@@ -87,6 +87,63 @@ actions:
         description: Timeout (seconds) for the migration process.
         type: number
         default: 120
+  create-service-provider:
+    description: Register a new service provider.
+    params:
+      entity-id:
+        description: The unique URI that identifies the service provider.
+        type: string
+      acs-url:
+        description: The Assertion Consumer Service (ACS) URL of the service provider.
+        type: string
+      acs-binding:
+        description: The SAML binding type.
+        type: string
+        default: urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST
+      attribute-mapping:
+        description: |
+          A JSON string that defines the attribute mapping rules and NameID format.
+          When invoking via the Juju CLI, pass `--string-args` so Juju does not parse the JSON string as a map.
+          For example: `juju run identity-saml-provider-operator/leader create-service-provider --string-args entity-id=... acs-url=... attribute-mapping='{"nameid_format": "..."}'`
+        type: string
+    required:
+      - entity-id
+      - acs-url
+  update-service-provider:
+    description: Update an existing service provider or replace its attribute mapping configuration.
+    params:
+      entity-id:
+        description: The unique URI of the target service provider.
+        type: string
+      acs-url:
+        description: The updated ACS URL.
+        type: string
+      acs-binding:
+        description: The updated SAML binding type.
+        type: string
+      attribute-mapping:
+        description: |
+          A JSON string that replaces the attribute mapping rules.
+          When invoking via the Juju CLI, pass `--string-args` so Juju does not parse the JSON string as a map.
+        type: string
+    required:
+      - entity-id
+  get-service-provider:
+    description: Retrieve a registered service provider configuration.
+    params:
+      entity-id:
+        description: The unique URI of the target service provider.
+        type: string
+    required:
+      - entity-id
+  delete-service-provider:
+    description: Delete a service provider configuration by clearing its attribute mapping rules.
+    params:
+      entity-id:
+        description: The unique URI of the target service provider.
+        type: string
+    required:
+      - entity-id
 
 parts:
   charm:
