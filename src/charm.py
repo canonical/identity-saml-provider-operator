@@ -55,6 +55,7 @@ from constants import (
     CERTIFICATE_TRANSFER_INTEGRATION_NAME,
     DATABASE_INTEGRATION_NAME,
     DATABASE_NAME,
+    DEFAULT_ACS_BINDING,
     OAUTH_GRANT_TYPES,
     OAUTH_INTEGRATION_NAME,
     OAUTH_SCOPES,
@@ -64,7 +65,7 @@ from constants import (
     VALID_DB_SSLMODES,
     WORKLOAD_CONTAINER,
 )
-from exceptions import MigrationError, PebbleServiceError
+from exceptions import MigrationError, PebbleServiceError, ServiceProviderError
 from integrations import (
     DatabaseConfig,
     OAuthIntegration,
@@ -84,6 +85,7 @@ from utils import (
     peer_integration_exists,
     public_route_integration_exists,
     saml_bridge_certs_exist,
+    workload_ready,
 )
 
 logger = logging.getLogger(__name__)
@@ -197,6 +199,18 @@ class IdentitySAMLProviderCharm(CharmBase):
 
         # Actions
         self.framework.observe(self.on.run_migration_action, self._on_run_migration_action)
+        self.framework.observe(
+            self.on.create_service_provider_action, self._on_create_service_provider_action
+        )
+        self.framework.observe(
+            self.on.update_service_provider_action, self._on_update_service_provider_action
+        )
+        self.framework.observe(
+            self.on.get_service_provider_action, self._on_get_service_provider_action
+        )
+        self.framework.observe(
+            self.on.delete_service_provider_action, self._on_delete_service_provider_action
+        )
 
     @property
     def internal_base_url(self) -> str:
@@ -454,6 +468,60 @@ class IdentitySAMLProviderCharm(CharmBase):
         migration_version = self.database_config.migration_version
         self.peer_data[migration_version] = self._workload_service.version
         event.log("Successfully updated migration version")
+
+    @workload_ready
+    def _on_create_service_provider_action(self, event: ActionEvent) -> None:
+        try:
+            result = self._workload_service.create_service_provider(
+                entity_id=event.params["entity-id"],
+                acs_url=event.params["acs-url"],
+                acs_binding=event.params.get("acs-binding", DEFAULT_ACS_BINDING),
+                attribute_mapping=event.params.get("attribute-mapping"),
+            )
+        except ServiceProviderError as err:
+            event.fail(f"Failed to create service provider: {err}")
+            return
+
+        event.set_results(result)
+
+    @workload_ready
+    def _on_update_service_provider_action(self, event: ActionEvent) -> None:
+        try:
+            result = self._workload_service.update_service_provider(
+                entity_id=event.params["entity-id"],
+                acs_url=event.params.get("acs-url"),
+                acs_binding=event.params.get("acs-binding"),
+                attribute_mapping=event.params.get("attribute-mapping"),
+            )
+        except ServiceProviderError as err:
+            event.fail(f"Failed to update service provider: {err}")
+            return
+
+        event.set_results(result)
+
+    @workload_ready
+    def _on_get_service_provider_action(self, event: ActionEvent) -> None:
+        try:
+            result = self._workload_service.get_service_provider(
+                entity_id=event.params["entity-id"],
+            )
+        except ServiceProviderError as err:
+            event.fail(f"Failed to get service provider: {err}")
+            return
+
+        event.set_results(result)
+
+    @workload_ready
+    def _on_delete_service_provider_action(self, event: ActionEvent) -> None:
+        try:
+            result = self._workload_service.delete_service_provider(
+                entity_id=event.params["entity-id"],
+            )
+        except ServiceProviderError as err:
+            event.fail(f"Failed to delete service provider: {err}")
+            return
+
+        event.set_results(result)
 
 
 if __name__ == "__main__":

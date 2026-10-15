@@ -4,6 +4,7 @@
 """Integration tests for Identity SAML Provider Operator."""
 
 import http
+import json
 import logging
 from pathlib import Path
 
@@ -163,6 +164,90 @@ def test_run_migration_action(juju: jubilant.Juju) -> None:
     assert result.status == "completed", (
         f"Expected run-migration action to complete, got {result.status}: {result.message}"
     )
+
+
+def test_service_provider_actions(juju: jubilant.Juju) -> None:
+    entity_id = "https://dashboard.stripe.com/saml/metadata"
+    initial_mapping = {
+        "nameid_format": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        "oidc_claim_mappings": {
+            "sub": "subject",
+            "email": "email",
+            "name": "name",
+            "groups": "groups",
+        },
+        "saml_attribute_mappings": {
+            "groups": {
+                "name": "Stripe-Role-org_XXXXXXXXXXXXXXXXXXX",
+                "name_format": "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+            }
+        },
+        "options": {"lowercase_email": True},
+    }
+    create_result = juju.run(
+        f"{SAML_APP}/leader",
+        "create-service-provider",
+        params={
+            "entity-id": entity_id,
+            "acs-url": "https://dashboard.stripe.com/login/saml/consume",
+            "acs-binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST",
+            "attribute-mapping": json.dumps(initial_mapping),
+        },
+    )
+    assert create_result.status == "completed", (
+        f"Expected create-service-provider to complete, got {create_result.status}: {create_result.message}"
+    )
+    assert create_result.results.get("status") == "success"
+    assert create_result.results.get("entity-id") == entity_id
+
+    updated_mapping = {
+        **initial_mapping,
+        "nameid_format": "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+        "saml_attribute_mappings": {
+            "groups": {
+                "name": "Stripe-Role-org_YYYYYYYYYYYYYYYYYYY",
+                "name_format": "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+            }
+        },
+    }
+    update_result = juju.run(
+        f"{SAML_APP}/leader",
+        "update-service-provider",
+        params={
+            "entity-id": entity_id,
+            "acs-url": "https://dashboard.stripe.com/login/saml/consume-updated",
+            "attribute-mapping": json.dumps(updated_mapping),
+        },
+    )
+    assert update_result.status == "completed", (
+        f"Expected update-service-provider to complete, got {update_result.status}: {update_result.message}"
+    )
+    assert update_result.results.get("status") == "success"
+
+    get_result = juju.run(
+        f"{SAML_APP}/leader",
+        "get-service-provider",
+        params={"entity-id": entity_id},
+    )
+    assert get_result.status == "completed", (
+        f"Expected get-service-provider to complete, got {get_result.status}: {get_result.message}"
+    )
+    assert get_result.results.get("entity-id") == entity_id
+    assert (
+        get_result.results.get("acs-url")
+        == "https://dashboard.stripe.com/login/saml/consume-updated"
+    )
+    assert json.loads(get_result.results.get("attribute-mapping", "{}")) == updated_mapping
+
+    delete_result = juju.run(
+        f"{SAML_APP}/leader",
+        "delete-service-provider",
+        params={"entity-id": entity_id},
+    )
+    assert delete_result.status == "completed", (
+        f"Expected delete-service-provider to complete, got {delete_result.status}: {delete_result.message}"
+    )
+    assert delete_result.results.get("status") == "success"
 
 
 def test_scale_up(juju: jubilant.Juju) -> None:

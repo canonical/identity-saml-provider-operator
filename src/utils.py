@@ -4,7 +4,7 @@
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 
-from ops import CharmBase
+from ops import ActionEvent, CharmBase
 
 from constants import (
     DATABASE_INTEGRATION_NAME,
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from charm import IdentitySAMLProviderCharm
 
 CharmEventHandler = TypeVar("CharmEventHandler", bound=Callable[..., Any])
+ActionEventHandler = TypeVar("ActionEventHandler", bound=Callable[[Any, ActionEvent], Any])
 CharmType = TypeVar("CharmType", bound=CharmBase)
 Condition = Callable[[CharmType], bool]
 
@@ -34,6 +35,26 @@ def leader_unit(func: CharmEventHandler) -> CharmEventHandler:
             return None
 
         return func(charm, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
+def workload_ready(func: ActionEventHandler) -> ActionEventHandler:
+    """A decorator, applied to any action handler, to validate container and workload readiness."""
+
+    @wraps(func)
+    def wrapper(
+        charm: "IdentitySAMLProviderCharm", event: ActionEvent, *args: Any, **kwargs: Any
+    ) -> Any | None:
+        if not container_connectivity(charm):
+            event.fail("Container is not connected yet")
+            return None
+
+        if not (charm._workload_service.is_running and charm._workload_service.is_ready):
+            event.fail("Workload service is not ready yet")
+            return None
+
+        return func(charm, event, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
 

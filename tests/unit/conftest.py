@@ -42,6 +42,20 @@ def mocked_workload_service_version(mocker: MockerFixture) -> MagicMock:
 
 
 @pytest.fixture
+def mocked_workload_service_running(mocker: MockerFixture) -> MagicMock:
+    return mocker.patch(
+        "charm.WorkloadService.is_running", new_callable=PropertyMock, return_value=True
+    )
+
+
+@pytest.fixture
+def mocked_workload_service_ready(mocker: MockerFixture) -> MagicMock:
+    return mocker.patch(
+        "charm.WorkloadService.is_ready", new_callable=PropertyMock, return_value=True
+    )
+
+
+@pytest.fixture
 def mocked_database_resource_created(mocker: MockerFixture) -> MagicMock:
     return mocker.patch("charm.DatabaseRequires.is_resource_created", return_value=True)
 
