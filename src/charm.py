@@ -211,6 +211,9 @@ class IdentitySAMLProviderCharm(CharmBase):
         self.framework.observe(
             self.on.delete_service_provider_action, self._on_delete_service_provider_action
         )
+        self.framework.observe(
+            self.on.list_service_providers_action, self._on_list_service_providers_action
+        )
 
     @property
     def internal_base_url(self) -> str:
@@ -519,6 +522,18 @@ class IdentitySAMLProviderCharm(CharmBase):
             )
         except ServiceProviderError as err:
             event.fail(f"Failed to delete service provider: {err}")
+            return
+
+        event.set_results(result)
+
+    @workload_ready
+    def _on_list_service_providers_action(self, event: ActionEvent) -> None:
+        try:
+            result = self._workload_service.list_service_providers(
+                self.database_config.to_env_vars()
+            )
+        except ServiceProviderError as err:
+            event.fail(f"Failed to list service providers: {err}")
             return
 
         event.set_results(result)

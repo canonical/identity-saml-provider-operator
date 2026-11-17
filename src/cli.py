@@ -7,7 +7,7 @@ from ops import Container
 from ops.pebble import Error, ExecError
 
 from constants import WORKLOAD_SERVICE
-from exceptions import MigrationError
+from exceptions import MigrationError, ServiceProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,24 @@ class CommandLine:
         except Error as err:
             logger.error("Failed to migrate the database: %s", err)
             raise MigrationError from err
+
+    def list_service_providers(self, environment: dict) -> str:
+        """List the registered SAML service providers."""
+        cmd = [
+            "/usr/bin/identity-saml-provider",
+            "service-provider",
+            "list",
+            "--format",
+            "json",
+        ]
+
+        try:
+            stdout, _ = self._run_cmd(cmd, environment=environment)
+        except Error as err:
+            logger.error("Failed to list service providers: %s", err)
+            raise ServiceProviderError from err
+
+        return stdout
 
     def _run_cmd(
         self,

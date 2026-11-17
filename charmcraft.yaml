@@ -144,6 +144,8 @@ actions:
         type: string
     required:
       - entity-id
+  list-service-providers:
+    description: List all registered service providers and their entity IDs.
 
 parts:
   charm:

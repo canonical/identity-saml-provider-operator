@@ -596,3 +596,110 @@ class TestDeleteServiceProviderAction:
             "status": "success",
             "message": "Attribute mapping cleared",
         }
+
+
+class TestListServiceProvidersAction:
+    @patch("charm.WorkloadService.list_service_providers")
+    def test_when_container_not_connected(
+        self,
+        mocked_list: MagicMock,
+        disconnected_container: testing.Container,
+    ) -> None:
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(containers={disconnected_container})
+
+        with pytest.raises(testing.ActionFailed, match="Container is not connected yet"):
+            ctx.run(
+                ctx.on.action("list-service-providers"),
+                state_in,
+            )
+
+        mocked_list.assert_not_called()
+
+    @patch("charm.WorkloadService.list_service_providers")
+    def test_when_service_not_ready(
+        self,
+        mocked_list: MagicMock,
+        base_container: testing.Container,
+        mocked_workload_service_running: MagicMock,
+    ) -> None:
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(containers={base_container})
+
+        with (
+            patch("charm.WorkloadService.is_ready", new_callable=PropertyMock, return_value=False),
+            pytest.raises(testing.ActionFailed, match="Workload service is not ready yet"),
+        ):
+            ctx.run(
+                ctx.on.action("list-service-providers"),
+                state_in,
+            )
+
+        mocked_list.assert_not_called()
+
+    @patch(
+        "charm.WorkloadService.list_service_providers",
+        side_effect=ServiceProviderError("database unavailable"),
+    )
+    def test_when_list_fails(
+        self,
+        mocked_list: MagicMock,
+        base_container: testing.Container,
+        mocked_workload_service_running: MagicMock,
+        mocked_workload_service_ready: MagicMock,
+    ) -> None:
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(containers={base_container})
+
+        with pytest.raises(
+            testing.ActionFailed,
+            match="Failed to list service providers: database unavailable",
+        ):
+            ctx.run(
+                ctx.on.action("list-service-providers"),
+                state_in,
+            )
+
+        mocked_list.assert_called_once()
+
+    @patch("charm.WorkloadService.list_service_providers")
+    def test_when_list_succeeds(
+        self,
+        mocked_list: MagicMock,
+        base_container: testing.Container,
+        mocked_workload_service_running: MagicMock,
+        mocked_workload_service_ready: MagicMock,
+    ) -> None:
+        mocked_list.return_value = {
+            "service-providers": '[{"entity_id": "https://sp.example.com"}]',
+        }
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(containers={base_container})
+
+        ctx.run(
+            ctx.on.action("list-service-providers"),
+            state_in,
+        )
+
+        mocked_list.assert_called_once()
+        assert ctx.action_results == mocked_list.return_value
+
+    @patch("charm.WorkloadService.list_service_providers")
+    def test_when_list_empty(
+        self,
+        mocked_list: MagicMock,
+        base_container: testing.Container,
+        mocked_workload_service_running: MagicMock,
+        mocked_workload_service_ready: MagicMock,
+    ) -> None:
+        mocked_list.return_value = {"service-providers": "[]"}
+        ctx = testing.Context(IdentitySAMLProviderCharm)
+        state_in = testing.State(containers={base_container})
+
+        ctx.run(
+            ctx.on.action("list-service-providers"),
+            state_in,
+        )
+
+        mocked_list.assert_called_once()
+        assert ctx.action_results == {"service-providers": "[]"}
