@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/canonical/identity-saml-provider-operator/compare/v1.2.0...v1.3.0) (2026-11-18)
+
+
+### Features
+
+* add list-service-providers action ([0849c79](https://github.com/canonical/identity-saml-provider-operator/commit/0849c793b4eecfe978233dfff40296287e30f5bd))
+* bump upstream-source to v0.2.2, complete image dependency ([d91fc99](https://github.com/canonical/identity-saml-provider-operator/commit/d91fc995d4f6cf1a0efcd79d0a584af12380a682))
+
+
+### Bug Fixes
+
+* **cli:** surface CLI error envelope and strengthen list action tests ([ee7e0a0](https://github.com/canonical/identity-saml-provider-operator/commit/ee7e0a00a1646d3a4439cba4be6c94b0a5052a98))
+
 ## [1.2.0](https://github.com/canonical/identity-saml-provider-operator/compare/v1.1.2...v1.2.0) (2026-11-09)
 
 
