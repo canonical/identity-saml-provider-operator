@@ -22,7 +22,7 @@
 
 ## 5. Workload Image Bump
 
-- [ ] 5.1 After the upstream release that ships `identity-saml-provider service-provider list`, bump `upstream-source` in `charmcraft.yaml` from `ghcr.io/canonical/identity-saml-provider:v0.2.1` to the new tag; run the full `tox` suite (fmt, lint, unit) and verify the action works end to end on the new image.
+- [x] 5.1 Bumped `upstream-source` in `charmcraft.yaml` from `v0.2.1` to `v0.2.2` after upstream release #425 merged and tag v0.2.2 available; ran full `tox` suite (fmt, lint, unit) and verified the action works end to end on the new image.
 
 ## Workflow follow-up
 
@@ -35,5 +35,4 @@
   serializes the action output with `ensure_ascii=False`. Action tests
   include `database_integration` in state and assert the forwarded
   `SAML_PROVIDER_DB_*` env vars.
-- Task 5.1 remains open by design: it is blocked on the upstream image
-  release (canonical/identity-saml-provider#425) and is the rollout gate.
+  - Image bump completed (2026-11-18) as part of the PR #169 finalization.
