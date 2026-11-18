@@ -8,7 +8,7 @@ from ops.pebble import Error, ExecError
 
 from cli import CommandLine
 from constants import WORKLOAD_SERVICE
-from exceptions import MigrationError
+from exceptions import MigrationError, ServiceProviderError
 
 
 class TestCommandLine:
@@ -53,6 +53,46 @@ class TestCommandLine:
         with patch.object(command_line, "_run_cmd", side_effect=Error):
             with pytest.raises(MigrationError):
                 command_line.migrate(dsn="dsn")
+
+    def test_list_service_providers(self, command_line: CommandLine) -> None:
+        environment = {"SAML_PROVIDER_DB_HOST": "localhost"}
+        cmd_output = '{"status": "success", "data": []}'
+        with patch.object(
+            command_line,
+            "_run_cmd",
+            return_value=(cmd_output, ""),
+        ) as run_cmd:
+            actual = command_line.list_service_providers(environment=environment)
+
+        assert actual == cmd_output
+        run_cmd.assert_called_once_with(
+            ["/usr/bin/identity-saml-provider", "service-provider", "list", "--format", "json"],
+            environment=environment,
+            service_context=WORKLOAD_SERVICE,
+        )
+
+    def test_list_service_providers_failed(self, command_line: CommandLine) -> None:
+        with patch.object(command_line, "_run_cmd", side_effect=Error):
+            with pytest.raises(ServiceProviderError):
+                command_line.list_service_providers(environment={})
+
+    def test_list_service_providers_exec_error_envelope(self, command_line: CommandLine) -> None:
+        """The CLI error envelope printed to stdout is surfaced in the error."""
+        envelope = (
+            '{"status": "error", "error": "cannot list service providers: connection refused"}'
+        )
+        exec_error = ExecError(
+            command=["identity-saml-provider"],
+            exit_code=1,
+            stdout=envelope.encode(),
+            stderr="",
+        )
+        with patch.object(command_line, "_run_cmd", side_effect=exec_error):
+            with pytest.raises(ServiceProviderError) as exc_info:
+                command_line.list_service_providers(environment={})
+
+        assert "connection refused" in str(exc_info.value)
+        assert "exited with code 1" in str(exc_info.value)
 
     def test_run_cmd(self, mocked_container: MagicMock, command_line: CommandLine) -> None:
         cmd, expected = ["cmd"], ("stdout", "")

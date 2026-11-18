@@ -395,6 +395,49 @@ class TestWorkloadService:
             == f"{ADMIN_SP_ATTRIBUTE_MAPPING_URL}?entity_id=https%3A%2F%2Fsp.example.com"
         )
 
+    def test_list_service_providers_when_succeeds(self, workload_service: WorkloadService) -> None:
+        db_env = {"SAML_PROVIDER_DB_HOST": "localhost"}
+        providers = [
+            {
+                "entity_id": "https://sp.example.com",
+                "acs_url": "https://sp.example.com/acs",
+                "acs_binding": DEFAULT_ACS_BINDING,
+                "attribute_mapping": {"name_id_format": "email"},
+            }
+        ]
+        stdout = json.dumps({"status": "success", "data": providers})
+        with patch("cli.CommandLine.list_service_providers", return_value=stdout) as mocked_list:
+            result = workload_service.list_service_providers(db_env)
+
+        assert result == {"service-providers": json.dumps(providers)}
+        mocked_list.assert_called_once_with(environment=db_env)
+
+    def test_list_service_providers_when_empty(self, workload_service: WorkloadService) -> None:
+        stdout = json.dumps({"status": "success", "data": []})
+        with patch("cli.CommandLine.list_service_providers", return_value=stdout):
+            result = workload_service.list_service_providers({})
+
+        assert result == {"service-providers": "[]"}
+
+    def test_list_service_providers_when_error_envelope(
+        self, workload_service: WorkloadService
+    ) -> None:
+        stdout = json.dumps({"status": "error", "error": "database unavailable"})
+        with (
+            patch("cli.CommandLine.list_service_providers", return_value=stdout),
+            pytest.raises(ServiceProviderError, match="database unavailable"),
+        ):
+            workload_service.list_service_providers({})
+
+    def test_list_service_providers_when_invalid_json(
+        self, workload_service: WorkloadService
+    ) -> None:
+        with (
+            patch("cli.CommandLine.list_service_providers", return_value="not-json"),
+            pytest.raises(ServiceProviderError, match="Invalid JSON output"),
+        ):
+            workload_service.list_service_providers({})
+
     def test_send_admin_request_when_http_error_with_json_message(
         self, workload_service: WorkloadService, caplog: pytest.LogCaptureFixture
     ) -> None:

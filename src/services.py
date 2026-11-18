@@ -236,6 +236,41 @@ class WorkloadService:
             f"{ADMIN_SP_ATTRIBUTE_MAPPING_URL}?{query}",
         )
 
+    def list_service_providers(self, db_env: dict[str, str]) -> dict[str, Any]:
+        """List all registered SAML service providers via the workload CLI.
+
+        Args:
+            db_env: The database connection environment variables.
+
+        Returns:
+            A dictionary with the action result payload.
+
+        Raises:
+            ServiceProviderError: If the workload CLI fails, returns an error
+                envelope, or returns output that is not valid JSON.
+        """
+        stdout = self._cli.list_service_providers(environment=db_env)
+
+        try:
+            envelope = json.loads(stdout)
+        except json.JSONDecodeError as err:
+            raise ServiceProviderError(
+                f"Invalid JSON output from service-provider list: {err}"
+            ) from err
+
+        if not isinstance(envelope, dict) or envelope.get("status") != "success":
+            message = envelope.get("error") if isinstance(envelope, dict) else None
+            raise ServiceProviderError(message or "workload CLI returned a non-success status")
+
+        data = envelope.get("data")
+        if not isinstance(data, list):
+            raise ServiceProviderError("workload CLI returned invalid data: expected a JSON array")
+
+        # ensure_ascii=False preserves non-ASCII characters (e.g. Unicode
+        # entity IDs) without escaping, matching how attribute mappings
+        # are serialized below.
+        return {"service-providers": json.dumps(data, ensure_ascii=False)}
+
     def _get_service_provider(self, entity_id: str) -> dict[str, Any]:
         query = urllib.parse.urlencode({"entity_id": entity_id})
         return self._send_admin_request("GET", f"{ADMIN_SERVICE_PROVIDERS_URL}?{query}")
