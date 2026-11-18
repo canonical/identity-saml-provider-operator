@@ -667,6 +667,7 @@ class TestListServiceProvidersAction:
         self,
         mocked_list: MagicMock,
         base_container: testing.Container,
+        database_integration: testing.Relation,
         mocked_workload_service_running: MagicMock,
         mocked_workload_service_ready: MagicMock,
     ) -> None:
@@ -674,14 +675,22 @@ class TestListServiceProvidersAction:
             "service-providers": '[{"entity_id": "https://sp.example.com"}]',
         }
         ctx = testing.Context(IdentitySAMLProviderCharm)
-        state_in = testing.State(containers={base_container})
+        state_in = testing.State(containers={base_container}, relations={database_integration})
 
         ctx.run(
             ctx.on.action("list-service-providers"),
             state_in,
         )
 
-        mocked_list.assert_called_once()
+        # Assert the database integration settings are forwarded as env vars.
+        mocked_list.assert_called_once_with({
+            "SAML_PROVIDER_DB_HOST": "endpoints",
+            "SAML_PROVIDER_DB_PORT": "",
+            "SAML_PROVIDER_DB_NAME": "saml_provider",
+            "SAML_PROVIDER_DB_USER": "username",
+            "SAML_PROVIDER_DB_PASSWORD": "password",
+            "SAML_PROVIDER_DB_SSLMODE": "disable",
+        })
         assert ctx.action_results == mocked_list.return_value
 
     @patch("charm.WorkloadService.list_service_providers")
@@ -689,17 +698,25 @@ class TestListServiceProvidersAction:
         self,
         mocked_list: MagicMock,
         base_container: testing.Container,
+        database_integration: testing.Relation,
         mocked_workload_service_running: MagicMock,
         mocked_workload_service_ready: MagicMock,
     ) -> None:
         mocked_list.return_value = {"service-providers": "[]"}
         ctx = testing.Context(IdentitySAMLProviderCharm)
-        state_in = testing.State(containers={base_container})
+        state_in = testing.State(containers={base_container}, relations={database_integration})
 
         ctx.run(
             ctx.on.action("list-service-providers"),
             state_in,
         )
 
-        mocked_list.assert_called_once()
+        mocked_list.assert_called_once_with({
+            "SAML_PROVIDER_DB_HOST": "endpoints",
+            "SAML_PROVIDER_DB_PORT": "",
+            "SAML_PROVIDER_DB_NAME": "saml_provider",
+            "SAML_PROVIDER_DB_USER": "username",
+            "SAML_PROVIDER_DB_PASSWORD": "password",
+            "SAML_PROVIDER_DB_SSLMODE": "disable",
+        })
         assert ctx.action_results == {"service-providers": "[]"}

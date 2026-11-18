@@ -68,12 +68,31 @@ class TestCommandLine:
         run_cmd.assert_called_once_with(
             ["/usr/bin/identity-saml-provider", "service-provider", "list", "--format", "json"],
             environment=environment,
+            service_context=WORKLOAD_SERVICE,
         )
 
     def test_list_service_providers_failed(self, command_line: CommandLine) -> None:
         with patch.object(command_line, "_run_cmd", side_effect=Error):
             with pytest.raises(ServiceProviderError):
                 command_line.list_service_providers(environment={})
+
+    def test_list_service_providers_exec_error_envelope(self, command_line: CommandLine) -> None:
+        """The CLI error envelope printed to stdout is surfaced in the error."""
+        envelope = (
+            '{"status": "error", "error": "cannot list service providers: connection refused"}'
+        )
+        exec_error = ExecError(
+            command=["identity-saml-provider"],
+            exit_code=1,
+            stdout=envelope.encode(),
+            stderr="",
+        )
+        with patch.object(command_line, "_run_cmd", side_effect=exec_error):
+            with pytest.raises(ServiceProviderError) as exc_info:
+                command_line.list_service_providers(environment={})
+
+        assert "connection refused" in str(exc_info.value)
+        assert "exited with code 1" in str(exc_info.value)
 
     def test_run_cmd(self, mocked_container: MagicMock, command_line: CommandLine) -> None:
         cmd, expected = ["cmd"], ("stdout", "")

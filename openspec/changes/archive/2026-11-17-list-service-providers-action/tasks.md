@@ -28,3 +28,12 @@
 
 - Archive the change after the project's review requirements are satisfied.
 - Verify the archived result.
+
+- Review follow-ups (2026-11-18): `list_service_providers` now runs with
+  `service_context=WORKLOAD_SERVICE` (parity with `migrate`), surfaces the
+  CLI error envelope printed to stdout on non-zero exit (`ExecError`), and
+  serializes the action output with `ensure_ascii=False`. Action tests
+  include `database_integration` in state and assert the forwarded
+  `SAML_PROVIDER_DB_*` env vars.
+- Task 5.1 remains open by design: it is blocked on the upstream image
+  release (canonical/identity-saml-provider#425) and is the rollout gate.

@@ -266,7 +266,10 @@ class WorkloadService:
         if not isinstance(data, list):
             raise ServiceProviderError("workload CLI returned invalid data: expected a JSON array")
 
-        return {"service-providers": json.dumps(data)}
+        # ensure_ascii=False preserves non-ASCII characters (e.g. Unicode
+        # entity IDs) without escaping, matching how attribute mappings
+        # are serialized below.
+        return {"service-providers": json.dumps(data, ensure_ascii=False)}
 
     def _get_service_provider(self, entity_id: str) -> dict[str, Any]:
         query = urllib.parse.urlencode({"entity_id": entity_id})

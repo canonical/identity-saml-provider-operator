@@ -47,7 +47,7 @@ class CommandLine:
             logger.error("Failed to migrate the database: %s", err)
             raise MigrationError from err
 
-    def list_service_providers(self, environment: dict) -> str:
+    def list_service_providers(self, environment: dict[str, str]) -> str:
         """List the registered SAML service providers."""
         cmd = [
             "/usr/bin/identity-saml-provider",
@@ -58,7 +58,20 @@ class CommandLine:
         ]
 
         try:
-            stdout, _ = self._run_cmd(cmd, environment=environment)
+            stdout, _ = self._run_cmd(
+                cmd, environment=environment, service_context=WORKLOAD_SERVICE
+            )
+        except ExecError as err:
+            # The CLI prints its error envelope ({"status": "error", ...})
+            # to stdout before exiting non-zero; surface it instead of a
+            # generic exit-code message.
+            cli_output = err.stdout.decode() if isinstance(err.stdout, bytes) else err.stdout
+            envelope = (cli_output or "").strip()
+            message = f"workload CLI exited with code {err.exit_code}"
+            if envelope:
+                message = f"{message}: {envelope}"
+            logger.error("Failed to list service providers: %s", message)
+            raise ServiceProviderError(message) from err
         except Error as err:
             logger.error("Failed to list service providers: %s", err)
             raise ServiceProviderError from err
@@ -69,7 +82,7 @@ class CommandLine:
         self,
         cmd: list[str],
         timeout: float = 20,
-        environment: dict | None = None,
+        environment: dict[str, str] | None = None,
         service_context: str | None = None,
     ) -> tuple[str, str | None]:
         process = self.container.exec(
